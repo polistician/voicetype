@@ -30,6 +30,38 @@ if [ ! -f "$MODEL_DIR/ggml-base.en.bin" ]; then
         -o "$MODEL_DIR/ggml-base.en.bin"
 fi
 
+# Create launchd plist for auto-start
+PLIST=~/Library/LaunchAgents/com.voxtype.app.plist
+cat > "$PLIST" << PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.voxtype.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$HOME/voxtype/.venv/bin/python</string>
+        <string>$HOME/voxtype/voxtype.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$HOME/voxtype</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>$HOME/.voxtype/voxtype.log</string>
+    <key>StandardErrorPath</key>
+    <string>$HOME/.voxtype/voxtype.log</string>
+</dict>
+</plist>
+PLISTEOF
+
+echo "Launch agent created at $PLIST"
+echo "To enable auto-start: launchctl load $PLIST"
+echo "To disable: launchctl unload $PLIST"
+
 echo ""
 echo "=== Setup complete ==="
 echo "Run: source ~/voxtype/.venv/bin/activate && python ~/voxtype/voxtype.py"
