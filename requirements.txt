@@ -1,0 +1,5 @@
+pywhispercpp
+sounddevice
+pynput
+rumps
+numpy
