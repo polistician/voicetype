@@ -8,17 +8,21 @@ from pynput import keyboard
 from recorder import Recorder
 from transcriber import Transcriber
 from paster import Paster
+from config import load_config, save_default_config
 
-MODEL_PATH = os.path.expanduser("~/voxtype/models/ggml-base.en.bin")
 HOTKEY = keyboard.Key.space  # with alt modifier
 
 
 class VoxType(rumps.App):
     def __init__(self):
         super().__init__("VoxType", title="\U0001f3a4")
-        self.menu = ["Status: Idle", None, "Model: base.en"]
+        self.cfg = load_config()
+        save_default_config()
 
-        self.recorder = Recorder(sample_rate=16000)
+        self._status_item = rumps.MenuItem("Status: Idle")
+        self.menu = [self._status_item, None, f"Model: {self.cfg['model']}"]
+
+        self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
         self.paster = Paster()
         self.recording = False
         self.alt_held = False
@@ -37,16 +41,14 @@ class VoxType(rumps.App):
 
     def _load_model(self):
         print("Loading Whisper model...")
-        self.transcriber = Transcriber(model_path=MODEL_PATH)
+        model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
+        self.transcriber = Transcriber(model_path=model_path)
         self._model_loaded.set()
         print("Model loaded!")
         self._update_status("Idle -- ready")
 
     def _update_status(self, status):
-        try:
-            self.menu["Status: Idle"].title = f"Status: {status}"
-        except Exception:
-            pass
+        self._status_item.title = f"Status: {status}"
 
     def _on_press(self, key):
         # Track alt/option key
@@ -85,7 +87,7 @@ class VoxType(rumps.App):
 
     def _transcribe_and_paste(self):
         audio = self.recorder.stop()
-        if len(audio) < 1600:  # less than 0.1s of audio -- ignore
+        if len(audio) < int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"]):
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
