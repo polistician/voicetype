@@ -1,16 +1,15 @@
 # voxtype.py
-"""VoxType -- Hold Option+Space to dictate, release to paste."""
+"""VoxType -- Hold Option+C to dictate, release to paste."""
 
 import rumps
 import threading
 import os
-from pynput import keyboard
 from recorder import Recorder
 from transcriber import Transcriber
+from translator import Translator
 from paster import Paster
-from config import load_config, save_default_config
-
-HOTKEY = keyboard.Key.space  # with alt modifier
+from hotkey import HotkeyListener
+from config import load_config, save_default_config, LANGUAGES
 
 
 class VoxType(rumps.App):
@@ -20,82 +19,134 @@ class VoxType(rumps.App):
         save_default_config()
 
         self._status_item = rumps.MenuItem("Status: Idle")
-        self.menu = [self._status_item, None, f"Model: {self.cfg['model']}"]
+        self._lang_menu = rumps.MenuItem("Output Language")
+        self._build_lang_menu()
+
+        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}"]
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
-        self.paster = Paster()
         self.recording = False
-        self.alt_held = False
+        self.output_language = self.cfg.get("output_language", "EN")
+
+        # Set up translator if API key is configured
+        api_key = self.cfg.get("deepl_api_key", "")
+        self.translator = Translator(api_key) if api_key else None
 
         # Load model in background to not block menubar
         self._model_loaded = threading.Event()
         self.transcriber = None
         threading.Thread(target=self._load_model, daemon=True).start()
 
-        # Start hotkey listener
-        self.listener = keyboard.Listener(
-            on_press=self._on_press,
-            on_release=self._on_release,
+        # Start hotkey listener — also handles pasting
+        self.hotkey = HotkeyListener(
+            on_start=self._start_recording,
+            on_stop=self._stop_recording,
+            on_translate=self._translate_clipboard,
         )
-        self.listener.start()
+        self.hotkey.start()
+
+        self.paster = Paster()
+        self.paster.set_hotkey(self.hotkey)
+
+    def _build_lang_menu(self):
+        current = self.cfg.get("output_language", "EN")
+        for code, label in LANGUAGES.items():
+            prefix = "\u2713 " if code == current else "   "
+            item = rumps.MenuItem(f"{prefix}{label}", callback=self._on_lang_select)
+            item._lang_code = code
+            self._lang_menu.add(item)
+
+    def _on_lang_select(self, sender):
+        self.output_language = sender._lang_code
+        # Update checkmarks
+        for item in self._lang_menu.values():
+            code = getattr(item, '_lang_code', None)
+            if code:
+                label = LANGUAGES.get(code, code)
+                item.title = f"\u2713 {label}" if code == self.output_language else f"   {label}"
+        mode = LANGUAGES.get(self.output_language, self.output_language)
+        print(f"Output language: {mode}", flush=True)
 
     def _load_model(self):
-        print("Loading Whisper model...")
+        print("Loading Whisper model...", flush=True)
         model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
         self.transcriber = Transcriber(model_path=model_path)
         self._model_loaded.set()
-        print("Model loaded!")
+        print("Model loaded!", flush=True)
         self._update_status("Idle -- ready")
 
     def _update_status(self, status):
         self._status_item.title = f"Status: {status}"
 
-    def _on_press(self, key):
-        # Track alt/option key
-        if key == keyboard.Key.alt_l or key == keyboard.Key.alt_r:
-            self.alt_held = True
+    def _start_recording(self):
+        if not self._model_loaded.is_set():
+            print("Model still loading, please wait...", flush=True)
             return
+        self.recording = True
+        self.title = "\U0001f534"
+        self._update_status("Recording...")
+        self.recorder.start()
+        print("Recording...", flush=True)
 
-        # Alt+Space triggers recording
-        if key == HOTKEY and self.alt_held and not self.recording:
-            if not self._model_loaded.is_set():
-                print("Model still loading, please wait...")
-                return
-            self.recording = True
-            self.title = "\U0001f534"
-            self._update_status("Recording...")
-            self.recorder.start()
-
-    def _on_release(self, key):
-        if key == keyboard.Key.alt_l or key == keyboard.Key.alt_r:
-            self.alt_held = False
-            # If we were recording and alt is released, stop
-            if self.recording:
-                self._finish_recording()
+    def _stop_recording(self):
+        if not self.recording:
             return
-
-        if key == HOTKEY and self.recording:
-            self._finish_recording()
-
-    def _finish_recording(self):
         self.recording = False
         self.title = "\u231b"
         self._update_status("Transcribing...")
-
-        # Run transcription in background to not block hotkey listener
         threading.Thread(target=self._transcribe_and_paste, daemon=True).start()
 
     def _transcribe_and_paste(self):
         audio = self.recorder.stop()
-        if len(audio) < int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"]):
+        min_samples = int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"])
+        if len(audio) < min_samples:
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
 
         text = self.transcriber.transcribe(audio)
         if text:
+            # Translate if needed
+            if self.output_language != "EN" and self.translator:
+                self._update_status("Translating...")
+                text = self.translator.translate(text, self.output_language)
+
             self.paster.paste(text)
-            print(f"Pasted: {text}")
+            print(f"Pasted: {text}", flush=True)
+            # Send to SOMA (non-blocking, fire-and-forget)
+            try:
+                from soma_hook import send_to_soma
+                send_to_soma(text)
+            except ImportError:
+                pass
+
+        self.title = "\U0001f3a4"
+        self._update_status("Idle -- ready")
+
+
+    def _translate_clipboard(self):
+        """Option+T: read clipboard, auto-detect language, translate, paste."""
+        if not self.translator:
+            print("No DeepL API key configured", flush=True)
+            return
+        threading.Thread(target=self._do_translate_clipboard, daemon=True).start()
+
+    def _do_translate_clipboard(self):
+        import subprocess
+        result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+        clipboard = result.stdout.strip()
+        if not clipboard:
+            print("Clipboard empty, nothing to translate", flush=True)
+            return
+
+        self.title = "\u231b"
+        self._update_status("Translating clipboard...")
+        print(f"Translating clipboard: {clipboard[:80]}...", flush=True)
+
+        translated, detected = self.translator.translate_auto(clipboard, self.output_language)
+        self.paster.paste(translated)
+        lang_name = LANGUAGES.get(detected, detected)
+        print(f"Translated ({detected}→{'EN' if detected != 'EN' else self.output_language}): {translated[:80]}...", flush=True)
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
