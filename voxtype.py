@@ -5,9 +5,10 @@ import rumps
 import threading
 import os
 from recorder import Recorder
-from transcriber import Transcriber
+from transcriber_v2 import TranscriberV2
 from translator import Translator
 from paster import Paster
+from voice_profile import update as update_profile, get_whisper_prompt
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
 
@@ -70,7 +71,14 @@ class VoxType(rumps.App):
     def _load_model(self):
         print("Loading Whisper model...", flush=True)
         model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
-        self.transcriber = Transcriber(model_path=model_path)
+        self.transcriber = TranscriberV2(model_path=model_path)
+
+        # Feed learned vocabulary into Whisper for better recognition
+        prompt = get_whisper_prompt()
+        if prompt:
+            self.transcriber.set_vocabulary(prompt.split(", "))
+            print(f"Loaded {len(prompt.split(', '))} vocabulary words", flush=True)
+
         self._model_loaded.set()
         print("Model loaded!", flush=True)
         self._update_status("Idle -- ready")
@@ -104,8 +112,21 @@ class VoxType(rumps.App):
             self._update_status("Idle -- ready")
             return
 
-        text = self.transcriber.transcribe(audio)
+        # Rich transcription: text + confidence + timing
+        rich = self.transcriber.transcribe_rich(audio)
+        text = rich["text"]
+
         if text:
+            # Update local voice profile (always, regardless of SOMA)
+            try:
+                update_profile(rich)
+                conf = rich.get("avg_confidence", 0)
+                lc = rich.get("low_confidence_words", [])
+                if lc:
+                    print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
+            except Exception:
+                pass
+
             # Translate if needed
             if self.output_language != "EN" and self.translator:
                 self._update_status("Translating...")
@@ -113,12 +134,6 @@ class VoxType(rumps.App):
 
             self.paster.paste(text)
             print(f"Pasted: {text}", flush=True)
-            # Send to SOMA (non-blocking, fire-and-forget)
-            try:
-                from soma_hook import send_to_soma
-                send_to_soma(text)
-            except ImportError:
-                pass
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
