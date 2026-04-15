@@ -33,10 +33,31 @@ def _load() -> dict:
     }
 
 
+def _sanitize(obj):
+    """Replace NaN/Inf with 0 recursively — json.dump crashes on these."""
+    import math
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return 0.0
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
 def _save(profile: dict):
     os.makedirs(os.path.dirname(PROFILE_PATH), exist_ok=True)
-    with open(PROFILE_PATH, "w") as f:
-        json.dump(profile, f, indent=2)
+    clean = _sanitize(profile)
+    # Write to temp file then rename — atomic, prevents truncation on crash
+    tmp = PROFILE_PATH + ".tmp"
+    try:
+        serialized = json.dumps(clean, indent=2)  # serialize to string first
+    except (ValueError, TypeError) as e:
+        print(f"[voice_profile] JSON serialize failed: {e}", flush=True)
+        return
+    with open(tmp, "w") as f:
+        f.write(serialized)
+    os.replace(tmp, PROFILE_PATH)  # atomic on POSIX
 
 
 def update(rich_result: dict):
