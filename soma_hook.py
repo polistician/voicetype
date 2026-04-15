@@ -1,8 +1,13 @@
-"""SOMA hook for VoxType — sends transcripts to SOMA after pasting.
+"""SOMA hook for VoxType — sends transcripts + voice quality data to SOMA.
 
-Add to VoxType by importing and calling after transcription:
-    from soma_hook import send_to_soma
-    send_to_soma(text)
+Two modes:
+  send_to_soma(text)              — basic, just the transcript
+  send_to_soma_rich(rich_result)  — includes confidence, timing, low-confidence words
+
+The rich mode feeds SOMA's voice profile learning, which in turn:
+1. Improves future transcription (vocabulary → Whisper initial_prompt)
+2. Detects pronunciation patterns (→ Luna coaching targets)
+3. Infers cognitive state from speech tempo (→ Sage/engram)
 """
 import threading
 import urllib.request
@@ -14,17 +19,36 @@ SOMA_TOKEN = os.environ.get("SOMA_TOKEN", "")
 
 
 def send_to_soma(transcript: str, source: str = "voxtype"):
-    """Non-blocking send to SOMA Vox API. Fire and forget."""
+    """Non-blocking send — basic transcript only. Fire and forget."""
     if not transcript or not transcript.strip():
         return
-    threading.Thread(
-        target=_send, args=(transcript, source), daemon=True
-    ).start()
+    payload = {"transcript": transcript, "source": source}
+    threading.Thread(target=_send, args=(payload,), daemon=True).start()
 
 
-def _send(transcript: str, source: str):
+def send_to_soma_rich(rich_result: dict, source: str = "voxtype"):
+    """Non-blocking send — rich data including confidence and timing.
+
+    rich_result is the output of TranscriberV2.transcribe_rich():
+    {text, segments, avg_confidence, low_confidence_words, duration_ms, words_per_minute}
+    """
+    text = rich_result.get("text", "").strip()
+    if not text:
+        return
+    payload = {
+        "transcript": text,
+        "source": source,
+        "avg_confidence": rich_result.get("avg_confidence"),
+        "words_per_minute": rich_result.get("words_per_minute"),
+        "low_confidence_words": rich_result.get("low_confidence_words", []),
+        "duration_ms": rich_result.get("duration_ms", 0),
+    }
+    threading.Thread(target=_send, args=(payload,), daemon=True).start()
+
+
+def _send(payload: dict):
     try:
-        data = json.dumps({"transcript": transcript, "source": source}).encode()
+        data = json.dumps(payload).encode()
         req = urllib.request.Request(
             f"{SOMA_URL}/api/vox/ingest",
             data=data,
@@ -39,5 +63,4 @@ def _send(transcript: str, source: str):
             if result.get("intent"):
                 print(f"[SOMA] {result['intent']}: {result.get('result', {}).get('response', '')[:60]}", flush=True)
     except Exception:
-        # Silent fail — VoxType must never break because of SOMA
         pass
