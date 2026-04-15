@@ -79,7 +79,8 @@ class TranscriberV2:
             if not text or text in self.JUNK:
                 continue
 
-            prob = getattr(seg, "avg_prob", None) or getattr(seg, "probability", None)
+            import math
+            prob = getattr(seg, "probability", None)
             t0 = getattr(seg, "t0", 0)
             t1 = getattr(seg, "t1", 0)
 
@@ -89,7 +90,7 @@ class TranscriberV2:
                 "t1": t1,
             }
 
-            if prob is not None:
+            if prob is not None and not math.isnan(prob):
                 seg_dict["probability"] = round(prob, 4)
                 all_probs.append(prob)
 

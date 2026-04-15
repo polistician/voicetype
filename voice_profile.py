@@ -45,11 +45,14 @@ def update(rich_result: dict):
     rich_result is from TranscriberV2.transcribe_rich():
     {text, segments, avg_confidence, low_confidence_words, duration_ms, words_per_minute}
     """
+    import math
     profile = _load()
     n = profile["total_captures"]
 
     # Rolling average confidence
-    conf = rich_result.get("avg_confidence", 0)
+    conf = rich_result.get("avg_confidence", 0) or 0
+    if isinstance(conf, float) and math.isnan(conf):
+        conf = 0
     if conf > 0:
         old = profile["avg_confidence"]
         profile["avg_confidence"] = round((old * n + conf) / (n + 1), 4)
