@@ -80,9 +80,12 @@ class TranscriberV2:
                 continue
 
             import math
-            prob = getattr(seg, "probability", None)
-            t0 = getattr(seg, "t0", 0)
-            t1 = getattr(seg, "t1", 0)
+            raw_prob = getattr(seg, "probability", None)
+            t0 = int(getattr(seg, "t0", 0))
+            t1 = int(getattr(seg, "t1", 0))
+
+            # Convert numpy float32 → Python float
+            prob = float(raw_prob) if raw_prob is not None else None
 
             seg_dict = {
                 "text": text,

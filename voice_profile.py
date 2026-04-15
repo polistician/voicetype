@@ -34,8 +34,11 @@ def _load() -> dict:
 
 
 def _sanitize(obj):
-    """Replace NaN/Inf with 0 recursively — json.dump crashes on these."""
+    """Make any object JSON-safe: convert numpy types, replace NaN/Inf."""
     import math
+    # numpy scalars → Python native
+    if hasattr(obj, 'item'):
+        obj = obj.item()
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return 0.0
     if isinstance(obj, dict):
