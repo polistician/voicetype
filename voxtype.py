@@ -124,6 +124,11 @@ class VoxType(rumps.App):
                 lc = rich.get("low_confidence_words", [])
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
+
+                # Hot-reload vocabulary into Whisper (don't wait for restart)
+                prompt = get_whisper_prompt()
+                if prompt:
+                    self.transcriber.set_vocabulary(prompt.split(", "))
             except Exception:
                 pass
 
