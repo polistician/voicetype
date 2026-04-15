@@ -60,6 +60,8 @@ def _save(profile: dict):
         return
     with open(tmp, "w") as f:
         f.write(serialized)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, PROFILE_PATH)  # atomic on POSIX
 
 
