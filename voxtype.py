@@ -9,6 +9,7 @@ from transcriber_v2 import TranscriberV2
 from translator import Translator
 from paster import Paster
 from voice_profile import update as update_profile, get_whisper_prompt
+from corrections import apply_corrections, seed_defaults
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
 
@@ -27,6 +28,7 @@ class VoxType(rumps.App):
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
         self.recording = False
+        seed_defaults()  # Load domain corrections (fox→vox, etc.)
         self.output_language = self.cfg.get("output_language", "EN")
 
         # Set up translator if API key is configured
@@ -117,7 +119,13 @@ class VoxType(rumps.App):
         text = rich["text"]
 
         if text:
-            # Update local voice profile (always, regardless of SOMA)
+            # 1. Apply known corrections (fox→vox, etc.) — BEFORE paste
+            corrected = apply_corrections(text)
+            if corrected != text:
+                print(f"  [corrected] {text} → {corrected}", flush=True)
+                text = corrected
+
+            # 2. Update local voice profile
             try:
                 update_profile(rich)
                 conf = rich.get("avg_confidence", 0)
@@ -125,14 +133,15 @@ class VoxType(rumps.App):
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
 
-                # Hot-reload vocabulary into Whisper (don't wait for restart)
+                # Hot-reload vocabulary into Whisper
                 prompt = get_whisper_prompt()
                 if prompt:
-                    self.transcriber.set_vocabulary(prompt.split(", "))
+                    words = prompt.replace("Words I use: ", "").split()
+                    self.transcriber.set_vocabulary(words)
             except Exception:
                 pass
 
-            # Translate if needed
+            # 3. Translate if needed
             if self.output_language != "EN" and self.translator:
                 self._update_status("Translating...")
                 text = self.translator.translate(text, self.output_language)
