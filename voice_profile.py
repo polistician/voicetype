@@ -127,7 +127,13 @@ def get_whisper_prompt() -> str:
 
     # Only include words seen 3+ times (established vocabulary)
     frequent = [w for w, c in sorted(vocab.items(), key=lambda x: -x[1]) if c >= 3]
-    return ", ".join(frequent[:50])
+    # Format as a natural sentence, NOT comma-separated.
+    # Whisper mimics the punctuation style of initial_prompt.
+    # "soma, vox, engram" → Whisper adds commas everywhere.
+    # "Words I use: soma vox engram nora titan" → natural output.
+    if not frequent:
+        return ""
+    return "Words I use: " + " ".join(frequent[:50])
 
 
 def get_low_confidence_words() -> list[str]:
