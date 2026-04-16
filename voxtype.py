@@ -141,7 +141,29 @@ class VoxType(rumps.App):
             except Exception:
                 pass
 
-            # 3. Translate if needed
+            # 3. Pronunciation analysis (if wav2vec2 available)
+            try:
+                from pronunciation import analyze, update_pronunciation_profile
+                pron = analyze(audio, expected_text=text)
+                if pron.get("available"):
+                    update_pronunciation_profile(pron)
+                    if pron.get("l1_issues"):
+                        issues = [i["phoneme"] + ":" + i["word"] for i in pron["l1_issues"][:2]]
+                        print(f"  [pronunciation] clarity={pron['overall_clarity']:.2f}, L1: {', '.join(issues)}", flush=True)
+            except ImportError:
+                pass
+            except Exception:
+                pass
+
+            # 4. Save training data for future LoRA fine-tuning
+            try:
+                from training_data import save_training_pair
+                save_training_pair(audio, rich["text"], corrected=text if text != rich["text"] else None,
+                                   confidence=rich.get("avg_confidence", 0))
+            except Exception:
+                pass
+
+            # 5. Translate if needed
             if self.output_language != "EN" and self.translator:
                 self._update_status("Translating...")
                 text = self.translator.translate(text, self.output_language)
