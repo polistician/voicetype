@@ -27,7 +27,11 @@ class TranscriberV2:
         Whisper uses initial_prompt as context — words the user frequently
         says will be recognized more accurately when prompted.
         """
-        self._vocabulary = words[:50]  # cap to avoid prompt overflow
+        self._vocabulary = words[:50]
+        # Pre-build the prompt as a natural sentence (NOT comma-separated,
+        # because Whisper mimics the punctuation style of the prompt)
+        clean = [w for w in self._vocabulary if w.strip()]
+        self._prompt = "Words I use: " + " ".join(clean) if clean else ""  # cap to avoid prompt overflow
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Simple transcription — backward compatible with v1."""
@@ -55,9 +59,7 @@ class TranscriberV2:
                     "low_confidence_words": [], "duration_ms": 0, "words_per_minute": 0}
 
         # Build initial prompt from learned vocabulary
-        prompt = ""
-        if self._vocabulary:
-            prompt = ", ".join(self._vocabulary)
+        prompt = getattr(self, "_prompt", "")
 
         # Transcribe with enhanced parameters
         params = {
