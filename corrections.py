@@ -65,11 +65,83 @@ def get_corrections() -> dict:
     return _load()
 
 
+def auto_learn_corrections():
+    """Infer corrections from voice profile data — zero user effort.
+
+    Logic: if a low-confidence word is within edit distance 1 of a
+    known domain/vocabulary word, it's probably a misrecognition.
+    Auto-add the correction.
+    """
+    try:
+        from voice_profile import _load as load_profile
+    except ImportError:
+        return 0
+
+    profile = load_profile()
+    lc_words = profile.get("low_confidence_words", {})
+    vocab = profile.get("vocabulary", {})
+    corrections = _load()
+    added = 0
+
+    # Domain words the user actually uses (count >= 3 in vocabulary)
+    known = {w for w, c in vocab.items() if c >= 3}
+    # Add seeded domain words
+    known.update(_DOMAIN_DEFAULTS.values())
+    known = {w.lower() for w in known}
+
+    for wrong, count in lc_words.items():
+        if count < 2:  # need at least 2 occurrences
+            continue
+        if len(wrong) < 4:  # short words cause too many false positives
+            continue
+        if wrong in corrections:  # already have a correction
+            continue
+        if wrong in known:  # it's a real word the user uses
+            continue
+
+        # Check edit distance 1 against known words
+        for right in known:
+            if len(right) < 4:  # don't correct TO short words either
+                continue
+            if _edit_distance_1(wrong, right):
+                corrections[wrong] = right
+                added += 1
+                break
+
+    if added:
+        _save(corrections)
+    return added
+
+
+def _edit_distance_1(a: str, b: str) -> bool:
+    """True if a and b differ by exactly 1 character (substitution, insert, or delete)."""
+    if a == b:
+        return False
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        # Substitution: exactly one position differs
+        return sum(x != y for x, y in zip(a, b)) == 1
+    # Insert/delete: the longer string has one extra char
+    short, long = (a, b) if len(a) < len(b) else (b, a)
+    i = j = diffs = 0
+    while i < len(short) and j < len(long):
+        if short[i] != long[j]:
+            diffs += 1
+            j += 1
+        else:
+            i += 1
+            j += 1
+    return diffs <= 1
+
+
 # Common known corrections for domain vocabulary
 # These are seeded once and can be overridden by user corrections
 _DOMAIN_DEFAULTS = {
     "fox": "vox",
     "fox type": "VoxType",
+    "box": "vox",
+    "box type": "VoxType",
     "soma hook": "SOMA hook",
     "in gram": "engram",
     "n gram": "engram",

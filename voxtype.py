@@ -9,7 +9,7 @@ from transcriber_v2 import TranscriberV2
 from translator import Translator
 from paster import Paster
 from voice_profile import update as update_profile, get_whisper_prompt
-from corrections import apply_corrections, seed_defaults
+from corrections import apply_corrections, seed_defaults, auto_learn_corrections
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
 
@@ -138,6 +138,9 @@ class VoxType(rumps.App):
                 if prompt:
                     words = prompt.replace("Words I use: ", "").split()
                     self.transcriber.set_vocabulary(words)
+
+                # Auto-learn corrections from low-confidence patterns
+                auto_learn_corrections()
             except Exception:
                 pass
 
