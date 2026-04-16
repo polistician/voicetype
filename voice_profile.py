@@ -127,13 +127,30 @@ def get_whisper_prompt() -> str:
 
     # Only include words seen 3+ times (established vocabulary)
     frequent = [w for w, c in sorted(vocab.items(), key=lambda x: -x[1]) if c >= 3]
-    # Format as a natural sentence, NOT comma-separated.
-    # Whisper mimics the punctuation style of initial_prompt.
-    # "soma, vox, engram" → Whisper adds commas everywhere.
-    # "Words I use: soma vox engram nora titan" → natural output.
-    if not frequent:
+
+    # Filter out common English — Whisper already knows these.
+    # Only feed domain-specific terms that Whisper would otherwise miss.
+    _COMMON = {
+        "the", "and", "you", "have", "that", "but", "not", "for", "would",
+        "it's", "like", "should", "this", "what", "are", "when", "then",
+        "can", "actually", "there", "they", "don't", "first", "see", "all",
+        "that's", "want", "with", "also", "your", "example", "about",
+        "i'm", "just", "why", "still", "how", "one", "something", "there's",
+        "because", "already", "has", "new", "look", "where", "get", "some",
+        "way", "know", "which", "think", "them", "make", "say", "out",
+        "however", "find", "does", "show", "didn't", "based", "from",
+        "only", "give", "two", "three", "was", "well", "back", "right",
+        "call", "same", "work", "add", "open", "start", "done", "take",
+        "most", "tell", "between", "before", "able", "everything", "etc",
+        "if", "is", "it", "to", "of", "in", "on", "or", "be", "so",
+        "do", "at", "by", "an", "no", "up", "my", "we", "he", "she",
+    }
+    domain_words = [w for w in frequent if w.lower() not in _COMMON]
+
+    if not domain_words:
         return ""
-    return "Words I use: " + " ".join(frequent[:50])
+    # Natural sentence format — Whisper mimics punctuation style of prompt
+    return "Words I use: " + " ".join(domain_words[:50])
 
 
 def get_low_confidence_words() -> list[str]:
