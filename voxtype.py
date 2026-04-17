@@ -78,8 +78,9 @@ class VoxType(rumps.App):
         # Feed learned vocabulary into Whisper for better recognition
         prompt = get_whisper_prompt()
         if prompt:
-            self.transcriber.set_vocabulary(prompt.split(", "))
-            print(f"Loaded {len(prompt.split(', '))} vocabulary words", flush=True)
+            words = prompt.replace("Words I use: ", "").split()
+            self.transcriber.set_vocabulary(words)
+            print(f"Loaded {len(words)} vocabulary words", flush=True)
 
         self._model_loaded.set()
         print("Model loaded!", flush=True)
@@ -91,6 +92,9 @@ class VoxType(rumps.App):
     def _start_recording(self):
         if not self._model_loaded.is_set():
             print("Model still loading, please wait...", flush=True)
+            return
+        if self.recording:
+            # Already recording — ignore double-press
             return
         self.recording = True
         self.title = "\U0001f534"
