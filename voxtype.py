@@ -269,6 +269,29 @@ class VoxType(rumps.App):
         # Wired up in Task 11. For now: log.
         print(f"  [overlay] requested mode={mode} from_clipboard={from_clipboard}", flush=True)
 
+    def create_snippet(self, name: str, body: str, description: str = "", tags: str = ""):
+        """Create a snippet and compute its embedding inline so it's matchable right away."""
+        s = self.snippet_store.create(name=name, body=body, description=description, tags=tags)
+        if self._embedder_ready.is_set() and self.embedder:
+            vec = self.embedder.encode(f"{name}. {description}. Tags: {tags}")
+            self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
+            self.snippet_cache[s.id] = vec
+        return s
+
+    def update_snippet(self, id: int, **fields):
+        text_fields = {"name", "description", "tags"}
+        self.snippet_store.update(id, **fields)
+        if self._embedder_ready.is_set() and any(k in fields for k in text_fields):
+            s = self.snippet_store.get(id)
+            vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
+            self.snippet_store.update(id, embedding=Embedder.array_to_blob(vec))
+            self.snippet_cache[id] = vec
+        return self.snippet_store.get(id)
+
+    def delete_snippet(self, id: int):
+        self.snippet_store.delete(id)
+        self.snippet_cache.pop(id, None)
+
     def _do_translate_clipboard(self):
         import subprocess
         result = subprocess.run(["pbpaste"], capture_output=True, text=True)
