@@ -41,6 +41,8 @@ final class OverlayState: ObservableObject {
     @Published var mode: String = "list"
     @Published var query: String = ""
     @Published var draftBody: String = ""
+    @Published var editingSnippet: SnippetItem? = nil
+    @Published var showingEditor: Bool = false
 }
 
 // MARK: - stdin reader
@@ -99,6 +101,34 @@ struct OverlayView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Invisible keyboard shortcut handlers
+            Button("") {
+                state.editingSnippet = nil
+                state.showingEditor = true
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button("") {
+                if let id = selectedID, let s = state.snippets.first(where: { $0.id == id }) {
+                    state.editingSnippet = s
+                    state.showingEditor = true
+                }
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button("") {
+                if let id = selectedID {
+                    emit(["type": "DELETE", "id": id])
+                }
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
             searchField
             captureStrip
             Divider()
@@ -108,6 +138,14 @@ struct OverlayView: View {
         .padding(14)
         .frame(width: 540, height: 420)
         .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .sheet(isPresented: $state.showingEditor) {
+            if let s = state.editingSnippet {
+                EditorView(name: s.name, bodyText: s.body, description: s.description, tags: s.tags, editingID: s.id)
+                    .environmentObject(state)
+            } else {
+                EditorView().environmentObject(state)
+            }
+        }
     }
 
     private var searchField: some View {
@@ -176,6 +214,45 @@ struct OverlayView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+struct EditorView: View {
+    @EnvironmentObject var state: OverlayState
+    @State var name: String = ""
+    @State var bodyText: String = ""
+    @State var description: String = ""
+    @State var tags: String = ""
+    var editingID: Int? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Name", text: $name).padding(8).background(Color.black.opacity(0.2)).cornerRadius(4)
+            TextField("Description (helps voice match)", text: $description).padding(8).background(Color.black.opacity(0.2)).cornerRadius(4)
+            TextField("Tags (comma separated)", text: $tags).padding(8).background(Color.black.opacity(0.2)).cornerRadius(4)
+            TextEditor(text: $bodyText).frame(minHeight: 120).padding(6).background(Color.black.opacity(0.2)).cornerRadius(4)
+            HStack {
+                Button("Cancel") { state.showingEditor = false }
+                Spacer()
+                if let id = editingID {
+                    Button("Delete", role: .destructive) {
+                        emit(["type": "DELETE", "id": id])
+                        state.showingEditor = false
+                    }
+                }
+                Button("Save") {
+                    if let id = editingID {
+                        emit(["type": "UPDATE", "id": id, "name": name, "body": bodyText, "description": description, "tags": tags])
+                    } else {
+                        emit(["type": "CREATE", "name": name, "body": bodyText, "description": description, "tags": tags])
+                    }
+                    state.showingEditor = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .frame(width: 500, height: 360)
     }
 }
 
