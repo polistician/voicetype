@@ -12,6 +12,11 @@ from voice_profile import update as update_profile, get_whisper_prompt
 from corrections import apply_corrections, seed_defaults, auto_learn_corrections
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
+from intent import route as route_intent
+from snippets import Store as SnippetStore
+from embedder import Embedder
+from transcript_history import History as TranscriptHistory
+import numpy as np
 
 
 class VoxType(rumps.App):
@@ -50,6 +55,34 @@ class VoxType(rumps.App):
 
         self.paster = Paster()
         self.paster.set_hotkey(self.hotkey)
+
+        # Snippet infrastructure — lazy init embedder to avoid blocking startup
+        self.snippet_store = SnippetStore()
+        self.embedder = None
+        self._embedder_ready = threading.Event()
+        self.snippet_cache: dict[int, np.ndarray] = {}
+        self.transcript_history = TranscriptHistory(size=10)
+        threading.Thread(target=self._load_embedder, daemon=True).start()
+
+    def _load_embedder(self):
+        try:
+            self.embedder = Embedder()
+            self._rebuild_snippet_cache()
+            self._embedder_ready.set()
+            print("Embedder loaded", flush=True)
+        except Exception as e:
+            print(f"Embedder failed to load: {e}", flush=True)
+
+    def _rebuild_snippet_cache(self):
+        self.snippet_cache.clear()
+        for s in self.snippet_store.list_all():
+            if s.embedding:
+                self.snippet_cache[s.id] = Embedder.blob_to_array(s.embedding, self.embedder.dim)
+            else:
+                # Missing embedding — compute and persist now
+                vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
+                self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
+                self.snippet_cache[s.id] = vec
 
     def _build_lang_menu(self):
         current = self.cfg.get("output_language", "EN")
@@ -123,33 +156,29 @@ class VoxType(rumps.App):
         text = rich["text"]
 
         if text:
-            # 1. Apply known corrections (fox→vox, etc.) — BEFORE paste
+            # 1. Apply known corrections (fox→vox, etc.)
             corrected = apply_corrections(text)
             if corrected != text:
                 print(f"  [corrected] {text} → {corrected}", flush=True)
                 text = corrected
 
-            # 2. Update local voice profile
+            # 2. Update local voice profile (background-safe)
             try:
                 update_profile(rich)
                 conf = rich.get("avg_confidence", 0)
                 lc = rich.get("low_confidence_words", [])
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
-
-                # Hot-reload vocabulary into Whisper
                 prompt = get_whisper_prompt()
                 if prompt:
                     words = prompt.replace("Words I use: ", "").split()
                     self.transcriber.set_vocabulary(words)
-
-                # Auto-learn corrections from low-confidence patterns
                 auto_learn_corrections()
             except Exception:
                 pass
 
-            # 3. Pronunciation + training data — run in background (never block next recording)
-            audio_copy = audio.copy()  # copy before thread — audio array may be reused
+            # 3. Pronunciation / training data — off the critical path
+            audio_copy = audio.copy()
             raw_text = rich["text"]
             corrected_text = text if text != raw_text else None
             conf = rich.get("avg_confidence", 0)
@@ -157,13 +186,19 @@ class VoxType(rumps.App):
                              args=(audio_copy, raw_text, corrected_text, conf),
                              daemon=True).start()
 
-            # 5. Translate if needed
-            if self.output_language != "EN" and self.translator:
-                self._update_status("Translating...")
-                text = self.translator.translate(text, self.output_language)
+            # 4. Intent routing — decide whether to dictate or invoke a command
+            intent = route_intent(text)
+            print(f"  [intent] {intent.action} payload={intent.payload}", flush=True)
 
-            self.paster.paste(text)
-            print(f"Pasted: {text}", flush=True)
+            if intent.action == "dictate":
+                self.transcript_history.push(text)
+                self._dictate_paste(text)
+            elif intent.action == "paste_snippet":
+                self._handle_paste_snippet(intent.payload.get("description", ""))
+            elif intent.action == "open_overview":
+                self._open_overlay()
+            elif intent.action == "save_snippet":
+                self._open_overlay(mode="save", from_clipboard=intent.payload.get("from_clipboard", False))
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
@@ -194,6 +229,45 @@ class VoxType(rumps.App):
             save_training_pair(audio, raw_text, corrected=corrected_text, confidence=confidence)
         except Exception:
             pass
+
+    def _dictate_paste(self, text: str):
+        if self.output_language != "EN" and self.translator:
+            self._update_status("Translating...")
+            text = self.translator.translate(text, self.output_language)
+        self.paster.paste(text)
+        print(f"Pasted: {text}", flush=True)
+
+    def _handle_paste_snippet(self, description: str):
+        if not self._embedder_ready.is_set():
+            print("Embedder not ready — falling back to dictate", flush=True)
+            self._dictate_paste(description)
+            return
+        if not self.snippet_cache:
+            print("No snippets saved — nothing to match", flush=True)
+            return
+        hits = self.embedder.match(description, self.snippet_cache, k=3)
+        if not hits:
+            return
+        top_id, top_score = hits[0]
+        second_score = hits[1][1] if len(hits) > 1 else 0.0
+        print(f"  [match] top={top_id} score={top_score:.3f} 2nd={second_score:.3f}", flush=True)
+
+        # Direct-paste threshold: top > 0.75 AND margin > 0.1
+        if top_score >= 0.75 and (top_score - second_score) >= 0.1:
+            s = self.snippet_store.get(top_id)
+            if s:
+                self.paster.paste(s.body)
+                self.snippet_store.record_use(top_id)
+                print(f"  Pasted snippet: {s.name}", flush=True)
+                return
+
+        # Ambiguous or low confidence: in this task, fall back to printing —
+        # the mini picker / overlay arrives in Task 14.
+        print(f"  Ambiguous match — overlay/picker not implemented yet (coming in Task 14)", flush=True)
+
+    def _open_overlay(self, mode: str = "list", from_clipboard: bool = False):
+        # Wired up in Task 11. For now: log.
+        print(f"  [overlay] requested mode={mode} from_clipboard={from_clipboard}", flush=True)
 
     def _do_translate_clipboard(self):
         import subprocess
