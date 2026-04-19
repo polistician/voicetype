@@ -3,3 +3,5 @@ sounddevice
 pynput
 rumps
 numpy
+sentence-transformers
+rapidfuzz
