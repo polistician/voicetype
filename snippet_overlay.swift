@@ -74,6 +74,10 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.mode = "picker"
                     panel.orderFrontRegardless()
                     panel.makeKey()
+                case "SHOW_HELP":
+                    state.mode = "help"
+                    panel.orderFrontRegardless()
+                    panel.makeKey()
                 default:
                     break
                 }
@@ -315,6 +319,66 @@ struct PickerView: View {
     }
 }
 
+struct HelpView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("VoxType Help")
+                .font(.system(size: 16, weight: .semibold))
+
+            Group {
+                Text("Quick actions").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    helpRow("Option+C (hold)", "dictate — transcribe and paste")
+                    helpRow("Option+T", "translate clipboard to selected language")
+                    helpRow("Option+Shift+S", "open snippet manager")
+                }
+
+                Text("Voice commands (hold Option+C and say…)").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+                VStack(alignment: .leading, spacing: 4) {
+                    helpRow("\"snippet <description>\"", "paste snippet matching the description")
+                    helpRow("\"open snippet overview\"", "open the manager")
+                    helpRow("\"save snippet from clipboard\"", "create snippet from clipboard")
+                    helpRow("\"show help\" / \"open help\"", "show this screen")
+                }
+
+                Text("Inside the snippet manager").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+                VStack(alignment: .leading, spacing: 4) {
+                    helpRow("↑ ↓ + ⏎", "navigate and paste")
+                    helpRow("⌘N / ⌘E / ⌘⌫", "new / edit / delete snippet")
+                    helpRow("Option+C (hold)", "dictate a search query")
+                    helpRow("?", "show this help")
+                    helpRow("Esc", "close")
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+
+            Text("What this does").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+            Text("VoxType is a voice + keyboard input system. Dictate naturally, or issue voice commands like \"snippet deploy v3\" to paste by meaning — no need to remember exact names. The manager (⌥⇧S) lets you create, edit, and browse snippets; inside it, keyboard is precise and voice is semantic. Matches with high confidence paste directly; medium confidence shows a 3-option picker; low confidence opens the manager with your query pre-filled.")
+                .font(.system(size: 11))
+                .foregroundColor(.primary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Esc to close").font(.system(size: 10)).foregroundColor(.secondary).padding(.top, 4)
+        }
+        .padding(16)
+        .frame(width: 500)
+        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+    }
+
+    private func helpRow(_ key: String, _ desc: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(key)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.primary)
+                .frame(width: 170, alignment: .leading)
+            Text(desc)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
@@ -336,6 +400,8 @@ struct RootView: View {
         Group {
             if state.mode == "picker" {
                 PickerView()
+            } else if state.mode == "help" {
+                HelpView()
             } else {
                 OverlayView()
             }
@@ -399,6 +465,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     return nil
                 default: break
                 }
+            }
+            // "?" key (shift + /) — show help from any mode
+            if event.charactersIgnoringModifiers == "?" {
+                self.state.mode = "help"
+                self.panel.orderFrontRegardless()
+                return nil
             }
             if event.keyCode == 53 { // Esc
                 self.panel.orderOut(nil)

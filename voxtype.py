@@ -29,7 +29,8 @@ class VoxType(rumps.App):
         self._lang_menu = rumps.MenuItem("Output Language")
         self._build_lang_menu()
 
-        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}"]
+        self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
+        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}", None, self._help_item]
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
         self.recording = False
@@ -231,6 +232,8 @@ class VoxType(rumps.App):
                 self._open_overlay()
             elif intent.action == "save_snippet":
                 self._open_overlay(mode="save", from_clipboard=intent.payload.get("from_clipboard", False))
+            elif intent.action == "open_help":
+                self._show_help()
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
@@ -320,6 +323,13 @@ class VoxType(rumps.App):
             "query": query,
             "draft_body": draft_body,
         })
+
+    def _show_help(self):
+        self.overlay_visible = True
+        self.overlay.send({"type": "SHOW_HELP"})
+
+    def _on_help_click(self, _sender):
+        self._show_help()
 
     def _on_overlay_event(self, msg: dict):
         t = msg.get("type")

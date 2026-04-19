@@ -22,7 +22,7 @@ from typing import Literal
 from rapidfuzz import fuzz
 
 
-Action = Literal["dictate", "paste_snippet", "open_overview", "save_snippet"]
+Action = Literal["dictate", "paste_snippet", "open_overview", "save_snippet", "open_help"]
 
 
 @dataclass
@@ -50,6 +50,8 @@ _TWO_TOKEN_TRIGGERS = {
     ("new", "snippet"),
     ("create", "snippet"),
     ("snip", "it"),
+    ("show", "help"),
+    ("open", "help"),
 }
 
 # Three-token trigger prefixes (for "bring up the snippet …")
@@ -80,6 +82,10 @@ def route(text: str) -> Intent:
     # tokens consumed by the trigger; everything after is the payload / action verb
     after_tokens = tokens[trigger_span:]
     joined_after = " ".join(after_tokens).lower()
+
+    # -- open_help (check before open_overview — "show/open help" uses same verb prefix) --
+    if tokens[0:2] == ["show", "help"] or tokens[0:2] == ["open", "help"]:
+        return Intent(action="open_help", confidence=0.95)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)

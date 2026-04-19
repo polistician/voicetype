@@ -42,6 +42,13 @@ CASES = [
     ("Snippet Deploy v3", "paste_snippet", "Deploy v3"),
     ("Snippet, deploy v3.", "paste_snippet", "deploy v3"),
     ("SNIPPET DEPLOY V3", "paste_snippet", "DEPLOY V3"),
+
+    # --- open_help ---
+    ("show help", "open_help", None),
+    ("open help", "open_help", None),
+    ("Show help.", "open_help", None),
+    # "help" alone should NOT trigger — too ambiguous
+    ("help me find that file", "dictate", None),
 ]
 
 
