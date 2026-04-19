@@ -50,6 +50,7 @@ class VoxType(rumps.App):
             on_start=self._start_recording,
             on_stop=self._stop_recording,
             on_translate=self._translate_clipboard,
+            on_open_overlay=self._open_overlay,
         )
         self.hotkey.start()
 
