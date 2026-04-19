@@ -64,6 +64,11 @@ class VoxType(rumps.App):
         self.transcript_history = TranscriptHistory(size=10)
         threading.Thread(target=self._load_embedder, daemon=True).start()
 
+        # Overlay bridge — helper may not exist yet (built in Task 10)
+        from overlay_bridge import OverlayBridge
+        self.overlay = OverlayBridge(on_event=self._on_overlay_event)
+        self.overlay.start()
+
     def _load_embedder(self):
         try:
             self.embedder = Embedder()
@@ -265,9 +270,66 @@ class VoxType(rumps.App):
         # the mini picker / overlay arrives in Task 14.
         print(f"  Ambiguous match — overlay/picker not implemented yet (coming in Task 14)", flush=True)
 
-    def _open_overlay(self, mode: str = "list", from_clipboard: bool = False):
-        # Wired up in Task 11. For now: log.
-        print(f"  [overlay] requested mode={mode} from_clipboard={from_clipboard}", flush=True)
+    def _open_overlay(self, mode: str = "list", query: str = "", from_clipboard: bool = False):
+        draft_body = ""
+        if from_clipboard:
+            import subprocess as _sp
+            draft_body = _sp.run(["pbpaste"], capture_output=True, text=True).stdout
+        self._push_snippet_list()
+        self.overlay.send({
+            "type": "OPEN",
+            "mode": mode,
+            "query": query,
+            "draft_body": draft_body,
+        })
+
+    def _on_overlay_event(self, msg: dict):
+        t = msg.get("type")
+        if t == "PASTE":
+            s = self.snippet_store.get(msg["id"])
+            if s:
+                self.paster.paste(s.body)
+                self.snippet_store.record_use(s.id)
+        elif t == "CREATE":
+            self.create_snippet(
+                name=msg.get("name", "Untitled"),
+                body=msg.get("body", ""),
+                description=msg.get("description", ""),
+                tags=msg.get("tags", ""),
+            )
+            self._push_snippet_list()
+        elif t == "UPDATE":
+            self.update_snippet(
+                id=msg["id"],
+                name=msg.get("name"),
+                body=msg.get("body"),
+                description=msg.get("description"),
+                tags=msg.get("tags"),
+            )
+            self._push_snippet_list()
+        elif t == "DELETE":
+            self.delete_snippet(msg["id"])
+            self._push_snippet_list()
+        elif t == "SEARCH":
+            hits = self.snippet_store.search_text(msg["query"])
+            self.overlay.send({"type": "SNIPPETS", "items": [self._snippet_dict(s) for s in hits]})
+        elif t == "DISMISSED":
+            pass
+
+    def _push_snippet_list(self):
+        items = [self._snippet_dict(s) for s in self.snippet_store.list_all()]
+        self.overlay.send({"type": "SNIPPETS", "items": items})
+
+    @staticmethod
+    def _snippet_dict(s):
+        return {
+            "id": s.id,
+            "name": s.name,
+            "description": s.description,
+            "body": s.body,
+            "tags": s.tags,
+            "used_count": s.used_count,
+        }
 
     def create_snippet(self, name: str, body: str, description: str = "", tags: str = ""):
         """Create a snippet and compute its embedding inline so it's matchable right away."""
