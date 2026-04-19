@@ -34,7 +34,10 @@ class Store:
     def __init__(self, path: str = DEFAULT_DB_PATH):
         self.path = path
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.conn = sqlite3.connect(path)
+        # check_same_thread=False: accessed from main thread, embedder-loader
+        # thread, and hotkey-listener thread. SQLite is thread-safe for our
+        # single-writer pattern.
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
 

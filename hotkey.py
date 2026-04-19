@@ -38,10 +38,13 @@ class HotkeyListener:
             stderr=subprocess.PIPE,
             text=True,
         )
+        # Also forward helper stderr (contains ERROR: lines from registration)
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+
         for line in self._proc.stdout:
             line = line.strip()
             if line == "READY":
-                print("Hotkey listener active (Option+C dictate, Option+T translate)", flush=True)
+                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S)", flush=True)
             elif line == "START":
                 self.on_start()
             elif line == "STOP":
@@ -54,3 +57,15 @@ class HotkeyListener:
                     self.on_open_overlay()
             elif line == "PASTED":
                 print("Paste confirmed", flush=True)
+            elif line:
+                # Forward anything else (PERMISSIONS, WARNING, etc.) so the user
+                # sees diagnostic info in the VoxType log.
+                print(f"[hotkey_helper] {line}", flush=True)
+
+    def _read_stderr(self):
+        if not self._proc or not self._proc.stderr:
+            return
+        for line in self._proc.stderr:
+            line = line.rstrip()
+            if line:
+                print(f"[hotkey_helper stderr] {line}", flush=True)
