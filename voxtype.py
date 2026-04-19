@@ -69,6 +69,7 @@ class VoxType(rumps.App):
         from overlay_bridge import OverlayBridge
         self.overlay = OverlayBridge(on_event=self._on_overlay_event)
         self.overlay.start()
+        self.overlay_visible = False
 
     def _load_embedder(self):
         try:
@@ -192,6 +193,14 @@ class VoxType(rumps.App):
                              args=(audio_copy, raw_text, corrected_text, conf),
                              daemon=True).start()
 
+            # If overlay is visible, treat speech as a search query, not dictation
+            if self.overlay_visible:
+                self.overlay.send({"type": "SEARCH", "query": text})
+                print(f"  [overlay-search] {text}", flush=True)
+                self.title = "\U0001f3a4"
+                self._update_status("Idle -- ready")
+                return
+
             # 4. Intent routing — decide whether to dictate or invoke a command
             intent = route_intent(text)
             print(f"  [intent] {intent.action} payload={intent.payload}", flush=True)
@@ -272,6 +281,7 @@ class VoxType(rumps.App):
         print(f"  Ambiguous match — overlay/picker not implemented yet (coming in Task 14)", flush=True)
 
     def _open_overlay(self, mode: str = "list", query: str = "", from_clipboard: bool = False):
+        self.overlay_visible = True
         draft_body = ""
         if from_clipboard:
             import subprocess as _sp
@@ -315,7 +325,7 @@ class VoxType(rumps.App):
             hits = self.snippet_store.search_text(msg["query"])
             self.overlay.send({"type": "SNIPPETS", "items": [self._snippet_dict(s) for s in hits]})
         elif t == "DISMISSED":
-            pass
+            self.overlay_visible = False
 
     def _push_snippet_list(self):
         items = [self._snippet_dict(s) for s in self.snippet_store.list_all()]

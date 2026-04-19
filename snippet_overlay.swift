@@ -66,6 +66,8 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     panel.orderOut(nil)
                 case "SNIPPETS":
                     state.snippets = msg.items ?? []
+                case "SEARCH":
+                    state.query = msg.query ?? ""
                 default:
                     break
                 }
@@ -145,6 +147,9 @@ struct OverlayView: View {
             } else {
                 EditorView().environmentObject(state)
             }
+        }
+        .onChange(of: state.query) { _, newValue in
+            localQuery = newValue
         }
     }
 
