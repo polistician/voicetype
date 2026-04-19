@@ -115,16 +115,33 @@ class VoxType(rumps.App):
         model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
         self.transcriber = TranscriberV2(model_path=model_path)
 
-        # Feed learned vocabulary into Whisper for better recognition
+        # Bias Whisper toward snippet trigger words + snippet names
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save"}
+        for s in self.snippet_store.list_all():
+            for tok in s.name.split():
+                if tok.isalpha() and len(tok) > 2:
+                    bias_words.add(tok.lower())
         prompt = get_whisper_prompt()
-        if prompt:
-            words = prompt.replace("Words I use: ", "").split()
-            self.transcriber.set_vocabulary(words)
-            print(f"Loaded {len(words)} vocabulary words", flush=True)
+        existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
+        merged = sorted(existing | bias_words)
+        self.transcriber.set_vocabulary(merged)
+        print(f"Loaded {len(merged)} vocabulary words (including snippet triggers)", flush=True)
 
         self._model_loaded.set()
         print("Model loaded!", flush=True)
         self._update_status("Idle -- ready")
+
+    def _refresh_whisper_vocab(self):
+        if not self.transcriber:
+            return
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save"}
+        for s in self.snippet_store.list_all():
+            for tok in s.name.split():
+                if tok.isalpha() and len(tok) > 2:
+                    bias_words.add(tok.lower())
+        prompt = get_whisper_prompt()
+        existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
+        self.transcriber.set_vocabulary(sorted(existing | bias_words))
 
     def _update_status(self, status):
         self._status_item.title = f"Status: {status}"
@@ -359,6 +376,7 @@ class VoxType(rumps.App):
             vec = self.embedder.encode(f"{name}. {description}. Tags: {tags}")
             self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
             self.snippet_cache[s.id] = vec
+        self._refresh_whisper_vocab()
         return s
 
     def update_snippet(self, id: int, **fields):
@@ -369,11 +387,13 @@ class VoxType(rumps.App):
             vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
             self.snippet_store.update(id, embedding=Embedder.array_to_blob(vec))
             self.snippet_cache[id] = vec
+        self._refresh_whisper_vocab()
         return self.snippet_store.get(id)
 
     def delete_snippet(self, id: int):
         self.snippet_store.delete(id)
         self.snippet_cache.pop(id, None)
+        self._refresh_whisper_vocab()
 
     def _do_translate_clipboard(self):
         import subprocess
