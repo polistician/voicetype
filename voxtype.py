@@ -276,9 +276,19 @@ class VoxType(rumps.App):
                 print(f"  Pasted snippet: {s.name}", flush=True)
                 return
 
-        # Ambiguous or low confidence: in this task, fall back to printing —
-        # the mini picker / overlay arrives in Task 14.
-        print(f"  Ambiguous match — overlay/picker not implemented yet (coming in Task 14)", flush=True)
+        # Medium confidence — show mini picker
+        if top_score >= 0.55:
+            candidates = []
+            for sid, score in hits[:3]:
+                s = self.snippet_store.get(sid)
+                if s:
+                    candidates.append({"id": sid, "name": s.name, "score": round(float(score), 3)})
+            self.overlay.send({"type": "PICKER", "candidates": candidates})
+            self.overlay_visible = True
+            return
+
+        # Low confidence — open full overlay with query
+        self._open_overlay(mode="search", query=description)
 
     def _open_overlay(self, mode: str = "list", query: str = "", from_clipboard: bool = False):
         self.overlay_visible = True

@@ -43,6 +43,7 @@ final class OverlayState: ObservableObject {
     @Published var draftBody: String = ""
     @Published var editingSnippet: SnippetItem? = nil
     @Published var showingEditor: Bool = false
+    @Published var pickerCandidates: [PickerCandidate] = []
 }
 
 // MARK: - stdin reader
@@ -68,6 +69,11 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.snippets = msg.items ?? []
                 case "SEARCH":
                     state.query = msg.query ?? ""
+                case "PICKER":
+                    state.pickerCandidates = msg.candidates ?? []
+                    state.mode = "picker"
+                    panel.orderFrontRegardless()
+                    panel.makeKey()
                 default:
                     break
                 }
@@ -284,6 +290,31 @@ struct SnippetRow: View {
     }
 }
 
+struct PickerView: View {
+    @EnvironmentObject var state: OverlayState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Did you mean:").font(.system(size: 11)).foregroundColor(.secondary)
+            ForEach(Array(state.pickerCandidates.prefix(3).enumerated()), id: \.element.id) { idx, c in
+                HStack {
+                    Text("\(idx + 1).").monospacedDigit().frame(width: 16, alignment: .leading)
+                    Text(c.name).fontWeight(.medium)
+                    Spacer()
+                    Text(String(format: "%.2f", c.score))
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                }
+                .padding(.vertical, 2)
+            }
+            Text("Press 1/2/3 · Esc to cancel").font(.system(size: 10)).foregroundColor(.secondary).padding(.top, 4)
+        }
+        .padding(12)
+        .frame(width: 340)
+        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+    }
+}
+
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
@@ -295,6 +326,21 @@ struct VisualEffectView: NSViewRepresentable {
         return v
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// MARK: - Root view (mode switcher)
+
+struct RootView: View {
+    @EnvironmentObject var state: OverlayState
+    var body: some View {
+        Group {
+            if state.mode == "picker" {
+                PickerView()
+            } else {
+                OverlayView()
+            }
+        }
+    }
 }
 
 // MARK: - App delegate
@@ -321,13 +367,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.orderOut(nil)
 
-        let content = NSHostingView(rootView: OverlayView().environmentObject(state))
+        let content = NSHostingView(rootView: RootView().environmentObject(state))
         panel.contentView = content
 
-        // Escape key dismiss
+        // Key handler: 1/2/3 in picker mode, Esc in any mode
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            if self.state.mode == "picker" {
+                // Number keys to select
+                switch event.keyCode {
+                case 18, 83: // 1 (top-row and numpad)
+                    if let c = self.state.pickerCandidates.first {
+                        emit(["type": "PASTE", "id": c.id])
+                    }
+                    self.panel.orderOut(nil)
+                    self.state.mode = "list"  // reset for next open
+                    return nil
+                case 19, 84: // 2
+                    if let c = self.state.pickerCandidates.dropFirst().first {
+                        emit(["type": "PASTE", "id": c.id])
+                    }
+                    self.panel.orderOut(nil)
+                    self.state.mode = "list"
+                    return nil
+                case 20, 85: // 3
+                    if let c = self.state.pickerCandidates.dropFirst(2).first {
+                        emit(["type": "PASTE", "id": c.id])
+                    }
+                    self.panel.orderOut(nil)
+                    self.state.mode = "list"
+                    return nil
+                default: break
+                }
+            }
             if event.keyCode == 53 { // Esc
-                self?.panel.orderOut(nil)
+                self.panel.orderOut(nil)
+                self.state.mode = "list"
                 emit(["type": "DISMISSED"])
                 return nil
             }
