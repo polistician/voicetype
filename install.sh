@@ -30,6 +30,10 @@ if [ ! -f "$MODEL_DIR/ggml-base.en.bin" ]; then
         -o "$MODEL_DIR/ggml-base.en.bin"
 fi
 
+# Compile Swift helpers
+echo "Compiling Swift helpers..."
+swiftc ~/voxtype/snippet_overlay.swift -o ~/voxtype/VoxType.app/Contents/MacOS/snippet_overlay
+
 # Create launchd plist for auto-start
 PLIST=~/Library/LaunchAgents/com.voxtype.app.plist
 cat > "$PLIST" << PLISTEOF
