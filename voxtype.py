@@ -423,22 +423,32 @@ class VoxType(rumps.App):
         elif t == "FIX_APPLY":
             desc = msg.get("description", "")
             fix = user_fixes.parse_heuristic(desc)
+            source = "heuristic"
+            if not fix and self.cfg.get("use_claude_cli_for_fix", False):
+                # Signal the overlay that we're waiting on Claude
+                self.overlay.send({"type": "FIX_RESULT", "success": True,
+                                   "message": "Asking Claude…"})
+                # Run the LLM call in a thread so we don't block overlay events
+                threading.Thread(
+                    target=self._fix_via_claude_async,
+                    args=(desc,),
+                    daemon=True,
+                ).start()
+                return
             if fix:
                 result = user_fixes.apply(fix)
-                # Reload intent router so the change is live immediately
                 try:
                     import intent as _intent
                     _intent.reload_user_fixes()
                 except Exception as e:
                     print(f"  [fix] reload failed: {e}", flush=True)
-                print(f"  [fix] {result}", flush=True)
+                print(f"  [fix/{source}] {result}", flush=True)
                 self.overlay.send({"type": "FIX_RESULT", "success": True, "message": result})
             else:
-                self.overlay.send({
-                    "type": "FIX_RESULT",
-                    "success": False,
-                    "message": "Couldn't parse — try 'X should be Y' or 'when I say X treat as Y'.",
-                })
+                hint = "Try 'X should be Y' or 'when I say X treat as Y'."
+                if not self.cfg.get("use_claude_cli_for_fix", False):
+                    hint += " (Or enable use_claude_cli_for_fix in config for natural-language fixes.)"
+                self.overlay.send({"type": "FIX_RESULT", "success": False, "message": "Couldn't parse. " + hint})
         elif t == "FIX_QUICK":
             # One-click fix: user clicked "↪ help" on a recent transcription
             text = msg.get("text", "").strip().lower()
@@ -457,6 +467,25 @@ class VoxType(rumps.App):
                     "success": True,
                     "message": f"Next time {text!r}, it'll route to {intent_key}.",
                 })
+
+    def _fix_via_claude_async(self, description: str):
+        recent = list(self._intent_history[-5:]) if hasattr(self, "_intent_history") else []
+        fix = user_fixes.parse_with_claude(description, recent_intents=recent)
+        if not fix:
+            self.overlay.send({
+                "type": "FIX_RESULT",
+                "success": False,
+                "message": "Claude couldn't parse the fix. Try rephrasing or use 'X should be Y'.",
+            })
+            return
+        result = user_fixes.apply(fix)
+        try:
+            import intent as _intent
+            _intent.reload_user_fixes()
+        except Exception as e:
+            print(f"  [fix] reload failed: {e}", flush=True)
+        print(f"  [fix/claude] {result}", flush=True)
+        self.overlay.send({"type": "FIX_RESULT", "success": True, "message": result})
 
     def _push_snippet_list(self):
         items = [self._snippet_dict(s) for s in self.snippet_store.list_all()]

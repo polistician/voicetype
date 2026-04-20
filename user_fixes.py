@@ -145,3 +145,83 @@ def apply(fix: dict) -> str:
         add_correction(fix["wrong"], fix["right"])
         return f"Added correction: {fix['wrong']!r} → {fix['right']!r}."
     return "No action taken."
+
+
+# --- LLM fallback via Claude Code CLI ---
+
+def parse_with_claude(description: str, recent_intents: Optional[list] = None,
+                      timeout_seconds: int = 15) -> Optional[dict]:
+    """Use `claude -p` to parse a free-text fix description.
+
+    Returns {"action": ..., ...} on success, None on failure (missing CLI,
+    timeout, non-JSON output, invalid shape). No API key required — piggybacks
+    on the user's existing Claude Code sign-in.
+    """
+    import shutil
+    import subprocess
+
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        return None
+
+    recent_block = ""
+    if recent_intents:
+        recent_block = "\nRecent VoxType transcriptions and how they were routed:\n" + "\n".join(
+            f"- {r.get('text', '')!r} → {r.get('action', '')}"
+            for r in recent_intents[-5:]
+        )
+
+    prompt = f"""You are parsing a correction request for VoxType (a voice dictation tool).
+
+Available command keys: help, snippet, save, clipboard.
+Routing actions seen: dictate, paste_snippet, open_overview, open_help, open_fix, save_snippet.
+{recent_block}
+
+User's correction: "{description}"
+
+Return ONE JSON object, no prose, no markdown fences. Pick the shape that fits:
+- {{"action": "add_variant", "intent_key": "help"|"snippet"|"save"|"clipboard", "word": "<the_misheard_word>"}}
+- {{"action": "add_correction", "wrong": "<what_whisper_wrote>", "right": "<what_it_should_be>"}}
+
+add_variant means: "when Whisper hears WORD, route it as INTENT_KEY".
+add_correction means: "when Whisper writes WRONG, replace with RIGHT in the transcription".
+
+Output only the JSON object."""
+
+    try:
+        result = subprocess.run(
+            [claude_bin, "-p", prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    output = result.stdout.strip()
+    # Strip markdown fences if the model included them despite the instruction
+    if output.startswith("```"):
+        lines = [l for l in output.split("\n") if not l.strip().startswith("```")]
+        output = "\n".join(lines).strip()
+
+    try:
+        fix = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+    action = fix.get("action")
+    if action == "add_variant":
+        if fix.get("intent_key") in {"help", "snippet", "save", "clipboard"} and fix.get("word"):
+            return {"action": "add_variant",
+                    "intent_key": fix["intent_key"],
+                    "word": str(fix["word"]).strip().lower()}
+    elif action == "add_correction":
+        if fix.get("wrong") and fix.get("right"):
+            return {"action": "add_correction",
+                    "wrong": str(fix["wrong"]).strip().lower(),
+                    "right": str(fix["right"]).strip()}
+
+    return None

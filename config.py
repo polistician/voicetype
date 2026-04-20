@@ -7,6 +7,23 @@ DEFAULT_CONFIG = {
     "model_dir": os.path.expanduser("~/voxtype/models"),
     "sample_rate": 16000,
     "min_audio_seconds": 0.3,
+    "deepl_api_key": "",
+    "output_language": "EN",
+    # When True, the Fix surface falls back to `claude -p` for free-text
+    # descriptions the regex parser can't handle. Uses the user's existing
+    # Claude Code sign-in (no API key). Default off — opt-in.
+    "use_claude_cli_for_fix": False,
+}
+
+LANGUAGES = {
+    "EN": "English (no translation)",
+    "ES": "Spanish",
+    "FR": "French",
+    "PT-BR": "Portuguese",
+    "DE": "German",
+    "IT": "Italian",
+    "JA": "Japanese",
+    "ZH": "Chinese",
 }
 
 CONFIG_PATH = os.path.expanduser("~/.voxtype/config.json")
