@@ -16,6 +16,11 @@ struct OverlayMessage: Codable {
     var items: [SnippetItem]?
     var candidates: [PickerCandidate]?
     var text: String?
+    // Draft fields for OPEN_EDITOR (autogen-filled on save flow)
+    var name: String?
+    var description: String?
+    var tags: String?
+    var body: String?
 }
 
 struct SnippetItem: Codable, Identifiable {
@@ -41,6 +46,9 @@ final class OverlayState: ObservableObject {
     @Published var mode: String = "list"
     @Published var query: String = ""
     @Published var draftBody: String = ""
+    @Published var draftName: String = ""
+    @Published var draftDesc: String = ""
+    @Published var draftTags: String = ""
     @Published var editingSnippet: SnippetItem? = nil
     @Published var showingEditor: Bool = false
     @Published var pickerCandidates: [PickerCandidate] = []
@@ -78,6 +86,17 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.mode = "help"
                     panel.orderFrontRegardless()
                     panel.makeKey()
+                case "OPEN_EDITOR":
+                    // Autogen-prefilled editor for save-from-clipboard flow
+                    state.draftName = msg.name ?? ""
+                    state.draftDesc = msg.description ?? ""
+                    state.draftTags = msg.tags ?? ""
+                    state.draftBody = msg.body ?? ""
+                    state.editingSnippet = nil
+                    state.mode = "list"  // panel shows list underneath editor
+                    panel.orderFrontRegardless()
+                    panel.makeKey()
+                    state.showingEditor = true
                 default:
                     break
                 }
@@ -155,7 +174,13 @@ struct OverlayView: View {
                 EditorView(name: s.name, bodyText: s.body, description: s.description, tags: s.tags, editingID: s.id)
                     .environmentObject(state)
             } else {
-                EditorView().environmentObject(state)
+                // New snippet — use autogen drafts if present (from OPEN_EDITOR)
+                EditorView(
+                    name: state.draftName,
+                    bodyText: state.draftBody,
+                    description: state.draftDesc,
+                    tags: state.draftTags
+                ).environmentObject(state)
             }
         }
         .onChange(of: state.query) { _, newValue in
@@ -187,13 +212,9 @@ struct OverlayView: View {
                     .lineLimit(1)
                 Spacer()
                 Button("⌘S save") {
-                    emit([
-                        "type": "CREATE",
-                        "name": "From clipboard",
-                        "body": state.draftBody,
-                        "description": "",
-                        "tags": "",
-                    ])
+                    // Route through Python so autogen fills name/desc/tags
+                    // and the editor opens for the user to review.
+                    emit(["type": "SAVE_FROM_CLIPBOARD"])
                 }
                 .buttonStyle(LinkButtonStyle())
             }

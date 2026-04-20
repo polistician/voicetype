@@ -16,6 +16,7 @@ from intent import route as route_intent
 from snippets import Store as SnippetStore
 from embedder import Embedder
 from transcript_history import History as TranscriptHistory
+from autogen import generate as autogen_metadata
 import numpy as np
 
 
@@ -317,6 +318,22 @@ class VoxType(rumps.App):
             import subprocess as _sp
             draft_body = _sp.run(["pbpaste"], capture_output=True, text=True).stdout
         self._push_snippet_list()
+
+        # Save flow: auto-generate name/description/tags and open the editor
+        # directly with everything pre-filled, so the user reviews instead of
+        # filling from scratch.
+        if mode == "save":
+            meta = autogen_metadata(draft_body)
+            print(f"  [autogen] name={meta['name']!r} tags={meta['tags']!r}", flush=True)
+            self.overlay.send({
+                "type": "OPEN_EDITOR",
+                "body": draft_body,
+                "name": meta["name"],
+                "description": meta["description"],
+                "tags": meta["tags"],
+            })
+            return
+
         self.overlay.send({
             "type": "OPEN",
             "mode": mode,
@@ -338,6 +355,9 @@ class VoxType(rumps.App):
             if s:
                 self.paster.paste(s.body)
                 self.snippet_store.record_use(s.id)
+        elif t == "SAVE_FROM_CLIPBOARD":
+            # Capture strip ⌘S — route through the save flow so autogen fires
+            self._open_overlay(mode="save", from_clipboard=True)
         elif t == "CREATE":
             self.create_snippet(
                 name=msg.get("name", "Untitled"),
