@@ -140,7 +140,10 @@ def route(text: str) -> Intent:
     # -- save_snippet --
     if first_token in _SAVE_VERBS:
         full = " ".join(tokens)
-        from_clipboard = any(h in full for h in _CLIPBOARD_HINTS)
+        from_clipboard = (
+            any(h in full for h in _CLIPBOARD_HINTS)
+            or "clip" in tokens  # bare "clip" = common Whisper dropout of "clipboard"
+        )
         return Intent(action="save_snippet", payload={"from_clipboard": from_clipboard}, confidence=0.95)
 
     # -- open_overview fallback for single-trigger "snippets" preceded by open verb --

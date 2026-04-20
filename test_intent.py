@@ -41,10 +41,11 @@ CASES = [
     ("save my clipboard as a snippet", "save_snippet", None),
     ("save this as a snippet", "save_snippet", None),
     ("create a new snippet from this", "save_snippet", None),
-    # Whisper misrecognitions: "save"→"safe", "clipboard"→"clip-bot"
+    # Whisper misrecognitions: "save"→"safe", "clipboard"→"clip-bot"/"clip"
     ("safe snippet", "save_snippet", None),
     ("safe my clip-bot as a snippet", "save_snippet", None),
     ("safe my clipboard as a snippet", "save_snippet", None),
+    ("save my clip as a snippet", "save_snippet", None),
     # "save" without snippet mention stays dictate
     ("save the file", "dictate", None),
     ("safe place to hide it", "dictate", None),
