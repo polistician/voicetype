@@ -447,14 +447,24 @@ class VoxType(rumps.App):
         # Stats is a read-only view — don't intercept subsequent dictation
         self.overlay_visible = False
         data = vox_stats.load()
-        recent = vox_stats.recent_decisions(n=10)
-        # Add some derived fields the UI can show directly
+        recent_full = vox_stats.recent_decisions(n=50)  # wider window for suggestions
         data["_snippets_total"] = len(self.snippet_store.list_all())
         data["_session_since"] = data.get("first_used_at")
+
+        # Mine the decision log for repeat-dictation snippet candidates
+        try:
+            from suggestions import suggest as _suggest
+            existing_bodies = [s.body for s in self.snippet_store.list_all()]
+            sugs = _suggest(recent_full, existing_bodies)
+        except Exception as e:
+            print(f"  [stats] suggest failed: {e}", flush=True)
+            sugs = []
+
         self.overlay.send({
             "type": "SHOW_STATS",
             "stats": data,
-            "recent_decisions": recent,
+            "recent_decisions": recent_full[:10],
+            "suggestions": sugs,
         })
 
     def _on_stats_click(self, _sender):

@@ -27,6 +27,14 @@ struct OverlayMessage: Codable {
     // Stats surface
     var stats: StatsData?
     var recent_decisions: [DecisionEntry]?
+    var suggestions: [SnippetSuggestion]?
+}
+
+struct SnippetSuggestion: Codable, Identifiable {
+    var id: String { phrase }
+    let phrase: String
+    let count: Int
+    let last_seen: Int
 }
 
 struct StatsData: Codable {
@@ -96,6 +104,7 @@ final class OverlayState: ObservableObject {
     @Published var fixResultSuccess: Bool = true
     @Published var statsData: StatsData = StatsData()
     @Published var statsDecisions: [DecisionEntry] = []
+    @Published var statsSuggestions: [SnippetSuggestion] = []
 }
 
 // MARK: - stdin reader
@@ -152,6 +161,7 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                 case "SHOW_STATS":
                     state.statsData = msg.stats ?? StatsData()
                     state.statsDecisions = msg.recent_decisions ?? []
+                    state.statsSuggestions = msg.suggestions ?? []
                     state.mode = "stats"
                     panel.orderFrontRegardless()
                     panel.makeKey()
@@ -458,21 +468,55 @@ struct HelpView: View {
 
 struct StatsView: View {
     @EnvironmentObject var state: OverlayState
+    @State private var expandedIds: Set<String> = []
+
+    private var savesTotal: Int {
+        let s = state.statsData
+        return (s.corrections_applied ?? 0)
+             + (s.fuzzy_help_saves ?? 0)
+             + (s.fuzzy_save_saves ?? 0)
+             + (s.user_variant_saves ?? 0)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("VoxType Stats")
-                .font(.system(size: 16, weight: .semibold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("VoxType Stats")
+                    .font(.system(size: 16, weight: .semibold))
 
-            counters
-            Divider()
-            demoSection
-            Divider()
-            Text("Esc to close").font(.system(size: 10)).foregroundColor(.secondary)
+                savesHeader
+                Divider()
+                counters
+                if !state.statsSuggestions.isEmpty {
+                    Divider()
+                    suggestionsSection
+                }
+                Divider()
+                demoSection
+                Divider()
+                Text("Esc to close · tap any row below to see the side-by-side")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+            }
+            .padding(16)
         }
-        .padding(16)
-        .frame(width: 620, height: 520)
+        .frame(width: 640, height: 580)
         .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+    }
+
+    private var savesHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(String(savesTotal))
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .foregroundColor(savesTotal > 0 ? .green : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Misrecognitions caught")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Without VoxType's layers, these would have been pasted as garbage text or dropped silently.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var counters: some View {
@@ -525,32 +569,141 @@ struct StatsView: View {
         }
     }
 
+    @ViewBuilder
     private func decisionRow(_ d: DecisionEntry) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            // Raw Whisper
-            Text(d.raw.isEmpty ? "—" : d.raw)
-                .font(.system(size: 11, design: .monospaced))
-                .lineLimit(1)
-                .frame(maxWidth: 250, alignment: .leading)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: expandedIds.contains(d.id) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Text(d.raw.isEmpty ? "—" : d.raw)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                    .frame(maxWidth: 250, alignment: .leading)
+                    .foregroundColor(.secondary)
+                Text("→")
+                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(d.action)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(actionColor(d.action))
+                    if !d.detail.isEmpty {
+                        Text(d.detail)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Text(String(format: "%.1fs", d.duration_s))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { toggleExpand(d.id) }
+
+            if expandedIds.contains(d.id) {
+                expandedPanel(d)
+                    .padding(.leading, 22)
+                    .padding(.bottom, 6)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func toggleExpand(_ id: String) {
+        if expandedIds.contains(id) { expandedIds.remove(id) } else { expandedIds.insert(id) }
+    }
+
+    @ViewBuilder
+    private func expandedPanel(_ d: DecisionEntry) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Without VoxType").font(.system(size: 9, weight: .semibold)).foregroundColor(.secondary)
+            Text(vanillaWhisperOutcome(d))
+                .font(.system(size: 11))
+                .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.12))
+                .cornerRadius(4)
+
+            Text("With VoxType").font(.system(size: 9, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+            Text(voxtypeOutcome(d))
+                .font(.system(size: 11))
+                .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.green.opacity(0.12))
+                .cornerRadius(4)
+        }
+    }
+
+    private func vanillaWhisperOutcome(_ d: DecisionEntry) -> String {
+        if d.raw.isEmpty {
+            return "(nothing — no audio captured)"
+        }
+        return "Paste verbatim: \"\(d.raw)\""
+    }
+
+    private func voxtypeOutcome(_ d: DecisionEntry) -> String {
+        switch d.action {
+        case "dictate":
+            return d.corrected
+                ? "Corrected → pasted: \"\(d.detail)\""
+                : "Routed as dictation → pasted as-is"
+        case "paste_snippet":
+            return "Matched snippet '\(d.detail)' → pasted snippet body"
+        case "open_help":
+            return "Opened help panel (\(d.detail))"
+        case "open_overview":
+            return "Opened snippet manager"
+        case "save_snippet":
+            return "Opened snippet editor with autogen draft"
+        case "open_fix":
+            return "Opened fix surface for correction"
+        case "open_stats":
+            return "Opened stats panel (recursive :)"
+        case "skip_short":
+            return "Ignored — audio too short (\(d.detail))"
+        case "skip_empty":
+            return "Ignored — empty transcription (\(d.detail))"
+        default:
+            return d.action
+        }
+    }
+
+    private var suggestionsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Snippet suggestions — phrases you've dictated 3+ times")
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
-            Text("→")
-                .foregroundColor(.secondary)
-            // Final action + detail
-            VStack(alignment: .leading, spacing: 1) {
-                Text(d.action)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(actionColor(d.action))
-                if !d.detail.isEmpty {
-                    Text(d.detail)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(state.statsSuggestions) { sug in
+                    suggestionRow(sug)
                 }
             }
-            Spacer()
-            Text(String(format: "%.1fs", d.duration_s))
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+        }
+    }
+
+    private func suggestionRow(_ sug: SnippetSuggestion) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(sug.count)×")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .frame(width: 30, alignment: .leading)
+                .foregroundColor(.green)
+            Text(sug.phrase)
+                .font(.system(size: 11))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Save as snippet") {
+                emit([
+                    "type": "CREATE",
+                    "name": String(sug.phrase.prefix(60)),
+                    "body": sug.phrase,
+                    "description": "auto-suggested from repeated dictation",
+                    "tags": "auto",
+                ])
+            }
+            .buttonStyle(LinkButtonStyle())
+            .font(.system(size: 10))
         }
         .padding(.vertical, 2)
     }
