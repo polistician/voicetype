@@ -305,14 +305,18 @@ class VoxType(rumps.App):
                 if s:
                     candidates.append({"id": sid, "name": s.name, "score": round(float(score), 3)})
             self.overlay.send({"type": "PICKER", "candidates": candidates})
-            self.overlay_visible = True
+            # Picker is decided by 1/2/3/Esc, not voice — don't intercept.
+            self.overlay_visible = False
             return
 
         # Low confidence — open full overlay with query
         self._open_overlay(mode="search", query=description)
 
     def _open_overlay(self, mode: str = "list", query: str = "", from_clipboard: bool = False):
-        self.overlay_visible = True
+        # Only the list/search mode intercepts voice-into-search.
+        # Help, picker, and editor modes should let subsequent dictation
+        # pass through to normal intent routing.
+        self.overlay_visible = mode in {"list", "search"}
         draft_body = ""
         if from_clipboard:
             import subprocess as _sp
@@ -323,6 +327,8 @@ class VoxType(rumps.App):
         # directly with everything pre-filled, so the user reviews instead of
         # filling from scratch.
         if mode == "save":
+            # Editor has its own focused text fields — don't intercept voice.
+            self.overlay_visible = False
             meta = autogen_metadata(draft_body)
             print(f"  [autogen] name={meta['name']!r} tags={meta['tags']!r}", flush=True)
             self.overlay.send({
@@ -342,7 +348,9 @@ class VoxType(rumps.App):
         })
 
     def _show_help(self):
-        self.overlay_visible = True
+        # Help is a passive viewer — let subsequent Option+C dictation
+        # flow through intent routing instead of getting swallowed as SEARCH.
+        self.overlay_visible = False
         self.overlay.send({"type": "SHOW_HELP"})
 
     def _on_help_click(self, _sender):
