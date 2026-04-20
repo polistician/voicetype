@@ -104,8 +104,10 @@ def route(text: str) -> Intent:
     joined_after = " ".join(after_tokens).lower()
 
     # -- open_help (check before open_overview) --
-    # "show/open <help-variant>" or bare "help" alone.
-    if len(tokens) >= 2 and tokens[0] in {"show", "open"} and tokens[1] in _HELP_VARIANTS:
+    # "show/open <help-or-neighbor>" or bare "help" alone.
+    # After an explicit "open"/"show" verb, command mode is active,
+    # so accept the wider neighbor set too.
+    if len(tokens) == 2 and tokens[0] in {"show", "open"} and tokens[1] in _BARE_HELP_VARIANTS:
         conf = 0.95 if tokens[1] == "help" else 0.75
         return Intent(action="open_help", confidence=conf)
     if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
@@ -198,6 +200,10 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
     # 1-token bare "help" (or an acoustic neighbor Whisper produced)
     if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
         return 1, False
+
+    # 2-token compound "open/show + help-neighbor" — consume both
+    if len(tokens) == 2 and tokens[0] in {"open", "show"} and tokens[1] in _BARE_HELP_VARIANTS:
+        return 2, True
 
     # Flexible save: "save/safe/new/create [anything] snippet"
     # Handles "save my clipboard as a snippet", "safe my clip-bot as snippet", etc.

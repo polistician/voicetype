@@ -73,6 +73,9 @@ CASES = [
     ("open hub", "open_help", None),
     ("show hub", "open_help", None),
     ("open halp", "open_help", None),
+    ("open have", "open_help", None),
+    ("open head", "open_help", None),
+    ("show held", "open_help", None),
     # "help me..." is real dictation, not a command
     ("help me find that file", "dictate", None),
     ("help me write this email", "dictate", None),
