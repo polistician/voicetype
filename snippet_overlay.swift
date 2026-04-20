@@ -114,10 +114,9 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.draftTags = msg.tags ?? ""
                     state.draftBody = msg.body ?? ""
                     state.editingSnippet = nil
-                    state.mode = "list"  // panel shows list underneath editor
+                    state.mode = "edit"
                     panel.orderFrontRegardless()
                     panel.makeKey()
-                    state.showingEditor = true
                 default:
                     break
                 }
@@ -156,7 +155,11 @@ struct OverlayView: View {
             // Invisible keyboard shortcut handlers
             Button("") {
                 state.editingSnippet = nil
-                state.showingEditor = true
+                state.draftName = ""
+                state.draftDesc = ""
+                state.draftTags = ""
+                state.draftBody = ""
+                state.mode = "edit"
             }
             .keyboardShortcut("n", modifiers: .command)
             .frame(width: 0, height: 0)
@@ -165,7 +168,7 @@ struct OverlayView: View {
             Button("") {
                 if let id = selectedID, let s = state.snippets.first(where: { $0.id == id }) {
                     state.editingSnippet = s
-                    state.showingEditor = true
+                    state.mode = "edit"
                 }
             }
             .keyboardShortcut("e", modifiers: .command)
@@ -190,20 +193,6 @@ struct OverlayView: View {
         .padding(14)
         .frame(width: 540, height: 420)
         .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
-        .sheet(isPresented: $state.showingEditor) {
-            if let s = state.editingSnippet {
-                EditorView(name: s.name, bodyText: s.body, description: s.description, tags: s.tags, editingID: s.id)
-                    .environmentObject(state)
-            } else {
-                // New snippet — use autogen drafts if present (from OPEN_EDITOR)
-                EditorView(
-                    name: state.draftName,
-                    bodyText: state.draftBody,
-                    description: state.draftDesc,
-                    tags: state.draftTags
-                ).environmentObject(state)
-            }
-        }
         .onChange(of: state.query) { _, newValue in
             localQuery = newValue
         }
@@ -289,12 +278,12 @@ struct EditorView: View {
             TextField("Tags (comma separated)", text: $tags).padding(8).background(Color.black.opacity(0.2)).cornerRadius(4)
             TextEditor(text: $bodyText).frame(minHeight: 120).padding(6).background(Color.black.opacity(0.2)).cornerRadius(4)
             HStack {
-                Button("Cancel") { state.showingEditor = false }
+                Button("Cancel") { state.mode = "list" }
                 Spacer()
                 if let id = editingID {
                     Button("Delete", role: .destructive) {
                         emit(["type": "DELETE", "id": id])
-                        state.showingEditor = false
+                        state.mode = "list"
                     }
                 }
                 Button("Save") {
@@ -303,13 +292,14 @@ struct EditorView: View {
                     } else {
                         emit(["type": "CREATE", "name": name, "body": bodyText, "description": description, "tags": tags])
                     }
-                    state.showingEditor = false
+                    state.mode = "list"
                 }
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding(14)
         .frame(width: 500, height: 360)
+        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
     }
 }
 
@@ -446,6 +436,12 @@ struct RootView: View {
                 HelpView()
             } else if state.mode == "fix" {
                 FixView()
+            } else if state.mode == "edit" {
+                if let s = state.editingSnippet {
+                    EditorView(name: s.name, bodyText: s.body, description: s.description, tags: s.tags, editingID: s.id)
+                } else {
+                    EditorView(name: state.draftName, bodyText: state.draftBody, description: state.draftDesc, tags: state.draftTags)
+                }
             } else {
                 OverlayView()
             }

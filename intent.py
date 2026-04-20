@@ -131,16 +131,20 @@ def route(text: str) -> Intent:
     # "show/open <help-or-neighbor>" or bare "help" alone.
     # After an explicit "open"/"show" verb, command mode is active,
     # so accept the wider neighbor set too.
-    if len(tokens) == 2 and tokens[0] in {"show", "open"} and tokens[1] in _BARE_HELP_VARIANTS:
-        conf = 0.95 if tokens[1] == "help" else 0.75
-        return Intent(action="open_help", confidence=conf)
-    if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
-        conf = 0.95 if tokens[0] == "help" else 0.65
-        return Intent(action="open_help", confidence=conf)
-
-    # -- open_fix --
-    if len(tokens) == 1 and tokens[0] in _BARE_FIX_VARIANTS:
-        return Intent(action="open_fix", confidence=0.95)
+    # Fuzzy threshold for single-word commands — Option+C is command mode,
+    # so one-word utterances acoustically near "help" / "fix" are almost
+    # certainly commands, not dictation. Catches "hope", "fist", etc.
+    if len(tokens) == 2 and tokens[0] in {"show", "open"}:
+        if tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 60:
+            conf = 0.95 if tokens[1] == "help" else 0.7
+            return Intent(action="open_help", confidence=conf)
+    if len(tokens) == 1:
+        word = tokens[0]
+        if word in _BARE_HELP_VARIANTS or fuzz.ratio(word, "help") >= 60:
+            conf = 0.95 if word == "help" else 0.65
+            return Intent(action="open_help", confidence=conf)
+        if word in _BARE_FIX_VARIANTS or fuzz.ratio(word, "fix") >= 60:
+            return Intent(action="open_fix", confidence=0.95 if word == "fix" else 0.7)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)
@@ -225,16 +229,16 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
         if second in _SINGLE_TRIGGERS or fuzz.ratio(second, "snippet") >= 85 or fuzz.ratio(second, "snippets") >= 85:
             return 2, True
 
-    # 1-token bare "help" (or an acoustic neighbor Whisper produced)
-    if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
+    # 1-token bare "help" (or fuzzy-matching acoustic neighbor)
+    if len(tokens) == 1 and (tokens[0] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[0], "help") >= 60):
         return 1, False
 
-    # 1-token bare "fix"
-    if len(tokens) == 1 and tokens[0] in _BARE_FIX_VARIANTS:
+    # 1-token bare "fix" (or fuzzy-matching acoustic neighbor)
+    if len(tokens) == 1 and (tokens[0] in _BARE_FIX_VARIANTS or fuzz.ratio(tokens[0], "fix") >= 60):
         return 1, False
 
     # 2-token compound "open/show + help-neighbor" — consume both
-    if len(tokens) == 2 and tokens[0] in {"open", "show"} and tokens[1] in _BARE_HELP_VARIANTS:
+    if len(tokens) == 2 and tokens[0] in {"open", "show"} and (tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 60):
         return 2, True
 
     # Flexible save: "save/safe/new/create [anything] snippet"
