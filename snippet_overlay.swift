@@ -21,6 +21,15 @@ struct OverlayMessage: Codable {
     var description: String?
     var tags: String?
     var body: String?
+    var recent: [RecentIntent]?
+    var success: Bool?
+    var message: String?
+}
+
+struct RecentIntent: Codable, Identifiable {
+    var id: String { text + action }
+    let text: String
+    let action: String
 }
 
 struct SnippetItem: Codable, Identifiable {
@@ -52,6 +61,9 @@ final class OverlayState: ObservableObject {
     @Published var editingSnippet: SnippetItem? = nil
     @Published var showingEditor: Bool = false
     @Published var pickerCandidates: [PickerCandidate] = []
+    @Published var recentIntents: [RecentIntent] = []
+    @Published var fixResultMessage: String = ""
+    @Published var fixResultSuccess: Bool = true
 }
 
 // MARK: - stdin reader
@@ -86,6 +98,15 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.mode = "help"
                     panel.orderFrontRegardless()
                     panel.makeKey()
+                case "SHOW_FIX":
+                    state.recentIntents = msg.recent ?? []
+                    state.fixResultMessage = ""
+                    state.mode = "fix"
+                    panel.orderFrontRegardless()
+                    panel.makeKey()
+                case "FIX_RESULT":
+                    state.fixResultMessage = msg.message ?? ""
+                    state.fixResultSuccess = msg.success ?? false
                 case "OPEN_EDITOR":
                     // Autogen-prefilled editor for save-from-clipboard flow
                     state.draftName = msg.name ?? ""
@@ -423,10 +444,95 @@ struct RootView: View {
                 PickerView()
             } else if state.mode == "help" {
                 HelpView()
+            } else if state.mode == "fix" {
+                FixView()
             } else {
                 OverlayView()
             }
         }
+    }
+}
+
+struct FixView: View {
+    @EnvironmentObject var state: OverlayState
+    @State private var fixText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Fix")
+                .font(.system(size: 16, weight: .semibold))
+
+            if !state.recentIntents.isEmpty {
+                Text("Recent transcriptions — click ↪ to correct")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(state.recentIntents) { r in
+                        recentRow(r)
+                    }
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+
+            Text("Or describe the fix")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            TextField("e.g. when I say 'have' treat as help", text: $fixText, onCommit: submit)
+                .textFieldStyle(PlainTextFieldStyle())
+                .padding(10)
+                .background(Color.black.opacity(0.25))
+                .cornerRadius(6)
+
+            HStack {
+                Button("Apply") { submit() }.keyboardShortcut(.defaultAction)
+                Spacer()
+                Text("Esc to close").font(.system(size: 10)).foregroundColor(.secondary)
+            }
+
+            if !state.fixResultMessage.isEmpty {
+                Text(state.fixResultMessage)
+                    .font(.system(size: 11))
+                    .foregroundColor(state.fixResultSuccess ? .green : .orange)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(16)
+        .frame(width: 520)
+        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+    }
+
+    private func recentRow(_ r: RecentIntent) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text("\(r.text.prefix(40))")
+                .font(.system(size: 11))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: 260, alignment: .leading)
+            Text("→ \(r.action)")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+            Spacer()
+            Group {
+                fixBtn("↪ help", "help", for: r)
+                fixBtn("↪ snippet", "snippet", for: r)
+                fixBtn("↪ save", "save", for: r)
+            }
+        }
+    }
+
+    private func fixBtn(_ label: String, _ intentKey: String, for r: RecentIntent) -> some View {
+        Button(label) {
+            emit(["type": "FIX_QUICK", "text": r.text, "intent_key": intentKey])
+        }
+        .buttonStyle(LinkButtonStyle())
+        .font(.system(size: 10))
+    }
+
+    private func submit() {
+        guard !fixText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        emit(["type": "FIX_APPLY", "description": fixText])
+        fixText = ""
     }
 }
 

@@ -81,6 +81,13 @@ CASES = [
     ("help me write this email", "dictate", None),
     # "hub" alone is too ambiguous with normal speech — stays dictate
     ("the hub and spoke model", "dictate", None),
+
+    # --- open_fix ---
+    ("fix", "open_fix", None),
+    ("Fix.", "open_fix", None),
+    ("fixed", "open_fix", None),
+    # "fix the spelling here" is dictation (compound phrase)
+    ("fix the spelling here", "dictate", None),
 ]
 
 

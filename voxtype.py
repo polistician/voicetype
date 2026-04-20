@@ -4,6 +4,7 @@
 import rumps
 import threading
 import os
+import user_fixes
 from recorder import Recorder
 from transcriber_v2 import TranscriberV2
 from translator import Translator
@@ -72,6 +73,7 @@ class VoxType(rumps.App):
         self.overlay = OverlayBridge(on_event=self._on_overlay_event)
         self.overlay.start()
         self.overlay_visible = False
+        self._intent_history: list[dict] = []  # recent (text, action) tuples, last 20
 
     def _load_embedder(self):
         try:
@@ -223,6 +225,8 @@ class VoxType(rumps.App):
             # 4. Intent routing — decide whether to dictate or invoke a command
             intent = route_intent(text)
             print(f"  [intent] {intent.action} payload={intent.payload}", flush=True)
+            self._intent_history.append({"text": text, "action": intent.action})
+            self._intent_history = self._intent_history[-20:]
 
             if intent.action == "dictate":
                 self.transcript_history.push(text)
@@ -235,6 +239,8 @@ class VoxType(rumps.App):
                 self._open_overlay(mode="save", from_clipboard=intent.payload.get("from_clipboard", False))
             elif intent.action == "open_help":
                 self._show_help()
+            elif intent.action == "open_fix":
+                self._show_fix_surface()
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
@@ -353,6 +359,15 @@ class VoxType(rumps.App):
         self.overlay_visible = False
         self.overlay.send({"type": "SHOW_HELP"})
 
+    def _show_fix_surface(self):
+        # Fix is an input surface — don't intercept subsequent dictation
+        self.overlay_visible = False
+        recent_intents = list(self._intent_history[-5:]) if hasattr(self, "_intent_history") else []
+        self.overlay.send({
+            "type": "SHOW_FIX",
+            "recent": recent_intents,
+        })
+
     def _on_help_click(self, _sender):
         self._show_help()
 
@@ -391,6 +406,43 @@ class VoxType(rumps.App):
             self.overlay.send({"type": "SNIPPETS", "items": [self._snippet_dict(s) for s in hits]})
         elif t == "DISMISSED":
             self.overlay_visible = False
+        elif t == "FIX_APPLY":
+            desc = msg.get("description", "")
+            fix = user_fixes.parse_heuristic(desc)
+            if fix:
+                result = user_fixes.apply(fix)
+                # Reload intent router so the change is live immediately
+                try:
+                    import intent as _intent
+                    _intent.reload_user_fixes()
+                except Exception as e:
+                    print(f"  [fix] reload failed: {e}", flush=True)
+                print(f"  [fix] {result}", flush=True)
+                self.overlay.send({"type": "FIX_RESULT", "success": True, "message": result})
+            else:
+                self.overlay.send({
+                    "type": "FIX_RESULT",
+                    "success": False,
+                    "message": "Couldn't parse — try 'X should be Y' or 'when I say X treat as Y'.",
+                })
+        elif t == "FIX_QUICK":
+            # One-click fix: user clicked "↪ help" on a recent transcription
+            text = msg.get("text", "").strip().lower()
+            intent_key = msg.get("intent_key", "")
+            if text and intent_key in {"help", "snippet", "save", "clipboard"}:
+                word = text.split()[-1]  # last token of the utterance
+                user_fixes.add_variant(intent_key, word)
+                try:
+                    import intent as _intent
+                    _intent.reload_user_fixes()
+                except Exception:
+                    pass
+                print(f"  [fix] added {word!r} as {intent_key} variant", flush=True)
+                self.overlay.send({
+                    "type": "FIX_RESULT",
+                    "success": True,
+                    "message": f"Next time {text!r}, it'll route to {intent_key}.",
+                })
 
     def _push_snippet_list(self):
         items = [self._snippet_dict(s) for s in self.snippet_store.list_all()]
