@@ -186,16 +186,37 @@ class VoxType(rumps.App):
         threading.Thread(target=self._transcribe_and_paste, daemon=True).start()
 
     def _transcribe_and_paste(self):
-        audio = self.recorder.stop()
+        try:
+            audio = self.recorder.stop()
+        except Exception as e:
+            print(f"  [err] recorder.stop() failed: {e}", flush=True)
+            self.title = "\U0001f3a4"
+            self._update_status("Idle -- ready")
+            return
+
+        duration = len(audio) / self.cfg["sample_rate"] if len(audio) else 0
         min_samples = int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"])
         if len(audio) < min_samples:
+            print(f"  [skip] audio too short ({duration:.2f}s < {self.cfg['min_audio_seconds']}s)", flush=True)
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
 
         # Rich transcription: text + confidence + timing
-        rich = self.transcriber.transcribe_rich(audio)
+        try:
+            rich = self.transcriber.transcribe_rich(audio)
+        except Exception as e:
+            print(f"  [err] transcribe_rich failed: {e}", flush=True)
+            self.title = "\U0001f3a4"
+            self._update_status("Idle -- ready")
+            return
         text = rich["text"]
+
+        if not text:
+            print(f"  [skip] whisper returned empty text (audio {duration:.2f}s)", flush=True)
+            self.title = "\U0001f3a4"
+            self._update_status("Idle -- ready")
+            return
 
         if text:
             # 1. Apply known corrections (fox→vox, etc.)
