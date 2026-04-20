@@ -90,10 +90,13 @@ def route(text: str) -> Intent:
     after_tokens = tokens[trigger_span:]
     joined_after = " ".join(after_tokens).lower()
 
-    # -- open_help (check before open_overview — "show/open help" uses same verb prefix) --
+    # -- open_help (check before open_overview) --
+    # "show/open <help-variant>" or bare "help" alone.
     if len(tokens) >= 2 and tokens[0] in {"show", "open"} and tokens[1] in _HELP_VARIANTS:
         conf = 0.95 if tokens[1] == "help" else 0.75
         return Intent(action="open_help", confidence=conf)
+    if len(tokens) == 1 and tokens[0] == "help":
+        return Intent(action="open_help", confidence=0.95)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)
@@ -172,6 +175,10 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
         second = tokens[1]
         if second in _SINGLE_TRIGGERS or fuzz.ratio(second, "snippet") >= 85 or fuzz.ratio(second, "snippets") >= 85:
             return 2, True
+
+    # 1-token bare "help" — user said just "help" by itself
+    if len(tokens) == 1 and tokens[0] == "help":
+        return 1, False
 
     # 1-token direct match
     if tokens[0] in _SINGLE_TRIGGERS:

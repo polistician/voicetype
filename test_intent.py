@@ -47,13 +47,18 @@ CASES = [
     ("show help", "open_help", None),
     ("open help", "open_help", None),
     ("Show help.", "open_help", None),
-    # Whisper misrecognitions of "help"
+    # Bare "help" triggers — but not compound
+    ("help", "open_help", None),
+    ("Help", "open_help", None),
+    ("help.", "open_help", None),
+    # Whisper misrecognitions of "help" with prefix
     ("open hub", "open_help", None),
     ("show hub", "open_help", None),
     ("open halp", "open_help", None),
-    # "help" alone should NOT trigger — too ambiguous
+    # "help me..." is real dictation, not a command
     ("help me find that file", "dictate", None),
-    # "hub" alone should NOT trigger
+    ("help me write this email", "dictate", None),
+    # "hub" alone is too ambiguous with normal speech — stays dictate
     ("the hub and spoke model", "dictate", None),
 ]
 
