@@ -12,6 +12,11 @@ from voice_profile import update as update_profile, get_whisper_prompt
 from corrections import apply_corrections, seed_defaults, auto_learn_corrections
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
+from intent import route as route_intent
+from snippets import Store as SnippetStore
+from embedder import Embedder
+from transcript_history import History as TranscriptHistory
+import numpy as np
 
 
 class VoxType(rumps.App):
@@ -24,7 +29,8 @@ class VoxType(rumps.App):
         self._lang_menu = rumps.MenuItem("Output Language")
         self._build_lang_menu()
 
-        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}"]
+        self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
+        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}", None, self._help_item]
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
         self.recording = False
@@ -45,11 +51,46 @@ class VoxType(rumps.App):
             on_start=self._start_recording,
             on_stop=self._stop_recording,
             on_translate=self._translate_clipboard,
+            on_open_overlay=self._open_overlay,
         )
         self.hotkey.start()
 
         self.paster = Paster()
         self.paster.set_hotkey(self.hotkey)
+
+        # Snippet infrastructure — lazy init embedder to avoid blocking startup
+        self.snippet_store = SnippetStore()
+        self.embedder = None
+        self._embedder_ready = threading.Event()
+        self.snippet_cache: dict[int, np.ndarray] = {}
+        self.transcript_history = TranscriptHistory(size=10)
+        threading.Thread(target=self._load_embedder, daemon=True).start()
+
+        # Overlay bridge — helper may not exist yet (built in Task 10)
+        from overlay_bridge import OverlayBridge
+        self.overlay = OverlayBridge(on_event=self._on_overlay_event)
+        self.overlay.start()
+        self.overlay_visible = False
+
+    def _load_embedder(self):
+        try:
+            self.embedder = Embedder()
+            self._rebuild_snippet_cache()
+            self._embedder_ready.set()
+            print("Embedder loaded", flush=True)
+        except Exception as e:
+            print(f"Embedder failed to load: {e}", flush=True)
+
+    def _rebuild_snippet_cache(self):
+        self.snippet_cache.clear()
+        for s in self.snippet_store.list_all():
+            if s.embedding:
+                self.snippet_cache[s.id] = Embedder.blob_to_array(s.embedding, self.embedder.dim)
+            else:
+                # Missing embedding — compute and persist now
+                vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
+                self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
+                self.snippet_cache[s.id] = vec
 
     def _build_lang_menu(self):
         current = self.cfg.get("output_language", "EN")
@@ -75,16 +116,33 @@ class VoxType(rumps.App):
         model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
         self.transcriber = TranscriberV2(model_path=model_path)
 
-        # Feed learned vocabulary into Whisper for better recognition
+        # Bias Whisper toward snippet trigger words + snippet names
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help"}
+        for s in self.snippet_store.list_all():
+            for tok in s.name.split():
+                if tok.isalpha() and len(tok) > 2:
+                    bias_words.add(tok.lower())
         prompt = get_whisper_prompt()
-        if prompt:
-            words = prompt.replace("Words I use: ", "").split()
-            self.transcriber.set_vocabulary(words)
-            print(f"Loaded {len(words)} vocabulary words", flush=True)
+        existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
+        merged = sorted(existing | bias_words)
+        self.transcriber.set_vocabulary(merged)
+        print(f"Loaded {len(merged)} vocabulary words (including snippet triggers)", flush=True)
 
         self._model_loaded.set()
         print("Model loaded!", flush=True)
         self._update_status("Idle -- ready")
+
+    def _refresh_whisper_vocab(self):
+        if not self.transcriber:
+            return
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help"}
+        for s in self.snippet_store.list_all():
+            for tok in s.name.split():
+                if tok.isalpha() and len(tok) > 2:
+                    bias_words.add(tok.lower())
+        prompt = get_whisper_prompt()
+        existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
+        self.transcriber.set_vocabulary(sorted(existing | bias_words))
 
     def _update_status(self, status):
         self._status_item.title = f"Status: {status}"
@@ -123,33 +181,29 @@ class VoxType(rumps.App):
         text = rich["text"]
 
         if text:
-            # 1. Apply known corrections (fox→vox, etc.) — BEFORE paste
+            # 1. Apply known corrections (fox→vox, etc.)
             corrected = apply_corrections(text)
             if corrected != text:
                 print(f"  [corrected] {text} → {corrected}", flush=True)
                 text = corrected
 
-            # 2. Update local voice profile
+            # 2. Update local voice profile (background-safe)
             try:
                 update_profile(rich)
                 conf = rich.get("avg_confidence", 0)
                 lc = rich.get("low_confidence_words", [])
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
-
-                # Hot-reload vocabulary into Whisper
                 prompt = get_whisper_prompt()
                 if prompt:
                     words = prompt.replace("Words I use: ", "").split()
                     self.transcriber.set_vocabulary(words)
-
-                # Auto-learn corrections from low-confidence patterns
                 auto_learn_corrections()
             except Exception:
                 pass
 
-            # 3. Pronunciation + training data — run in background (never block next recording)
-            audio_copy = audio.copy()  # copy before thread — audio array may be reused
+            # 3. Pronunciation / training data — off the critical path
+            audio_copy = audio.copy()
             raw_text = rich["text"]
             corrected_text = text if text != raw_text else None
             conf = rich.get("avg_confidence", 0)
@@ -157,13 +211,29 @@ class VoxType(rumps.App):
                              args=(audio_copy, raw_text, corrected_text, conf),
                              daemon=True).start()
 
-            # 5. Translate if needed
-            if self.output_language != "EN" and self.translator:
-                self._update_status("Translating...")
-                text = self.translator.translate(text, self.output_language)
+            # If overlay is visible, treat speech as a search query, not dictation
+            if self.overlay_visible:
+                self.overlay.send({"type": "SEARCH", "query": text})
+                print(f"  [overlay-search] {text}", flush=True)
+                self.title = "\U0001f3a4"
+                self._update_status("Idle -- ready")
+                return
 
-            self.paster.paste(text)
-            print(f"Pasted: {text}", flush=True)
+            # 4. Intent routing — decide whether to dictate or invoke a command
+            intent = route_intent(text)
+            print(f"  [intent] {intent.action} payload={intent.payload}", flush=True)
+
+            if intent.action == "dictate":
+                self.transcript_history.push(text)
+                self._dictate_paste(text)
+            elif intent.action == "paste_snippet":
+                self._handle_paste_snippet(intent.payload.get("description", ""))
+            elif intent.action == "open_overview":
+                self._open_overlay()
+            elif intent.action == "save_snippet":
+                self._open_overlay(mode="save", from_clipboard=intent.payload.get("from_clipboard", False))
+            elif intent.action == "open_help":
+                self._show_help()
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
@@ -194,6 +264,146 @@ class VoxType(rumps.App):
             save_training_pair(audio, raw_text, corrected=corrected_text, confidence=confidence)
         except Exception:
             pass
+
+    def _dictate_paste(self, text: str):
+        if self.output_language != "EN" and self.translator:
+            self._update_status("Translating...")
+            text = self.translator.translate(text, self.output_language)
+        self.paster.paste(text)
+        print(f"Pasted: {text}", flush=True)
+
+    def _handle_paste_snippet(self, description: str):
+        if not self._embedder_ready.is_set():
+            print("Embedder not ready — falling back to dictate", flush=True)
+            self._dictate_paste(description)
+            return
+        if not self.snippet_cache:
+            print("No snippets saved — nothing to match", flush=True)
+            return
+        hits = self.embedder.match(description, self.snippet_cache, k=3)
+        if not hits:
+            return
+        top_id, top_score = hits[0]
+        second_score = hits[1][1] if len(hits) > 1 else 0.0
+        print(f"  [match] top={top_id} score={top_score:.3f} 2nd={second_score:.3f}", flush=True)
+
+        # Direct-paste threshold: top > 0.75 AND margin > 0.1
+        if top_score >= 0.75 and (top_score - second_score) >= 0.1:
+            s = self.snippet_store.get(top_id)
+            if s:
+                self.paster.paste(s.body)
+                self.snippet_store.record_use(top_id)
+                print(f"  Pasted snippet: {s.name}", flush=True)
+                return
+
+        # Medium confidence — show mini picker
+        if top_score >= 0.55:
+            candidates = []
+            for sid, score in hits[:3]:
+                s = self.snippet_store.get(sid)
+                if s:
+                    candidates.append({"id": sid, "name": s.name, "score": round(float(score), 3)})
+            self.overlay.send({"type": "PICKER", "candidates": candidates})
+            self.overlay_visible = True
+            return
+
+        # Low confidence — open full overlay with query
+        self._open_overlay(mode="search", query=description)
+
+    def _open_overlay(self, mode: str = "list", query: str = "", from_clipboard: bool = False):
+        self.overlay_visible = True
+        draft_body = ""
+        if from_clipboard:
+            import subprocess as _sp
+            draft_body = _sp.run(["pbpaste"], capture_output=True, text=True).stdout
+        self._push_snippet_list()
+        self.overlay.send({
+            "type": "OPEN",
+            "mode": mode,
+            "query": query,
+            "draft_body": draft_body,
+        })
+
+    def _show_help(self):
+        self.overlay_visible = True
+        self.overlay.send({"type": "SHOW_HELP"})
+
+    def _on_help_click(self, _sender):
+        self._show_help()
+
+    def _on_overlay_event(self, msg: dict):
+        t = msg.get("type")
+        if t == "PASTE":
+            s = self.snippet_store.get(msg["id"])
+            if s:
+                self.paster.paste(s.body)
+                self.snippet_store.record_use(s.id)
+        elif t == "CREATE":
+            self.create_snippet(
+                name=msg.get("name", "Untitled"),
+                body=msg.get("body", ""),
+                description=msg.get("description", ""),
+                tags=msg.get("tags", ""),
+            )
+            self._push_snippet_list()
+        elif t == "UPDATE":
+            self.update_snippet(
+                id=msg["id"],
+                name=msg.get("name"),
+                body=msg.get("body"),
+                description=msg.get("description"),
+                tags=msg.get("tags"),
+            )
+            self._push_snippet_list()
+        elif t == "DELETE":
+            self.delete_snippet(msg["id"])
+            self._push_snippet_list()
+        elif t == "SEARCH":
+            hits = self.snippet_store.search_text(msg["query"])
+            self.overlay.send({"type": "SNIPPETS", "items": [self._snippet_dict(s) for s in hits]})
+        elif t == "DISMISSED":
+            self.overlay_visible = False
+
+    def _push_snippet_list(self):
+        items = [self._snippet_dict(s) for s in self.snippet_store.list_all()]
+        self.overlay.send({"type": "SNIPPETS", "items": items})
+
+    @staticmethod
+    def _snippet_dict(s):
+        return {
+            "id": s.id,
+            "name": s.name,
+            "description": s.description,
+            "body": s.body,
+            "tags": s.tags,
+            "used_count": s.used_count,
+        }
+
+    def create_snippet(self, name: str, body: str, description: str = "", tags: str = ""):
+        """Create a snippet and compute its embedding inline so it's matchable right away."""
+        s = self.snippet_store.create(name=name, body=body, description=description, tags=tags)
+        if self._embedder_ready.is_set() and self.embedder:
+            vec = self.embedder.encode(f"{name}. {description}. Tags: {tags}")
+            self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
+            self.snippet_cache[s.id] = vec
+        self._refresh_whisper_vocab()
+        return s
+
+    def update_snippet(self, id: int, **fields):
+        text_fields = {"name", "description", "tags"}
+        self.snippet_store.update(id, **fields)
+        if self._embedder_ready.is_set() and any(k in fields for k in text_fields):
+            s = self.snippet_store.get(id)
+            vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
+            self.snippet_store.update(id, embedding=Embedder.array_to_blob(vec))
+            self.snippet_cache[id] = vec
+        self._refresh_whisper_vocab()
+        return self.snippet_store.get(id)
+
+    def delete_snippet(self, id: int):
+        self.snippet_store.delete(id)
+        self.snippet_cache.pop(id, None)
+        self._refresh_whisper_vocab()
 
     def _do_translate_clipboard(self):
         import subprocess
