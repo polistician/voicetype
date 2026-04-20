@@ -88,6 +88,15 @@ CASES = [
     ("fixed", "open_fix", None),
     # "fix the spelling here" is dictation (compound phrase)
     ("fix the spelling here", "dictate", None),
+
+    # --- open_stats ---
+    ("stats", "open_stats", None),
+    ("Stats.", "open_stats", None),
+    ("analytics", "open_stats", None),
+    ("show stats", "open_stats", None),
+    ("open stats", "open_stats", None),
+    # Compound phrases stay as dictation
+    ("stats are interesting", "dictate", None),
 ]
 
 

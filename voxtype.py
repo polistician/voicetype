@@ -5,6 +5,7 @@ import rumps
 import threading
 import os
 import user_fixes
+import stats as vox_stats
 from recorder import Recorder
 from transcriber_v2 import TranscriberV2
 from translator import Translator
@@ -32,7 +33,12 @@ class VoxType(rumps.App):
         self._build_lang_menu()
 
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
-        self.menu = [self._status_item, None, self._lang_menu, None, f"Model: {self.cfg['model']}", None, self._help_item]
+        self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
+        self.menu = [
+            self._status_item, None, self._lang_menu, None,
+            f"Model: {self.cfg['model']}", None,
+            self._help_item, self._stats_item,
+        ]
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
         self.recording = False
@@ -198,6 +204,8 @@ class VoxType(rumps.App):
         min_samples = int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"])
         if len(audio) < min_samples:
             print(f"  [skip] audio too short ({duration:.2f}s < {self.cfg['min_audio_seconds']}s)", flush=True)
+            vox_stats.log_decision("", "skip_short", f"{duration:.2f}s < {self.cfg['min_audio_seconds']}s",
+                                    duration_s=duration)
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
@@ -214,16 +222,20 @@ class VoxType(rumps.App):
 
         if not text:
             print(f"  [skip] whisper returned empty text (audio {duration:.2f}s)", flush=True)
+            vox_stats.log_decision("", "skip_empty", f"audio {duration:.2f}s",
+                                    duration_s=duration)
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
 
         if text:
+            raw_whisper_text = text
             # 1. Apply known corrections (fox→vox, etc.)
             corrected = apply_corrections(text)
             if corrected != text:
                 print(f"  [corrected] {text} → {corrected}", flush=True)
                 text = corrected
+                vox_stats.increment("corrections_applied")
 
             # 2. Update local voice profile (background-safe)
             try:
@@ -266,16 +278,42 @@ class VoxType(rumps.App):
             if intent.action == "dictate":
                 self.transcript_history.push(text)
                 self._dictate_paste(text)
+                vox_stats.increment("recordings_total")
+                vox_stats.increment("words_dictated_total", by=len(text.split()))
+                vox_stats.log_decision(raw_whisper_text, "dictate", text[:200] if text != raw_whisper_text else "",
+                                        duration_s=duration,
+                                        was_corrected=(text != raw_whisper_text))
             elif intent.action == "paste_snippet":
                 self._handle_paste_snippet(intent.payload.get("description", ""))
             elif intent.action == "open_overview":
                 self._open_overlay()
+                vox_stats.increment("overview_opens")
+                vox_stats.log_decision(raw_whisper_text, "open_overview", "",
+                                        duration_s=duration)
             elif intent.action == "save_snippet":
                 self._open_overlay(mode="save", from_clipboard=intent.payload.get("from_clipboard", False))
+                vox_stats.increment("overview_opens")
+                vox_stats.log_decision(raw_whisper_text, "save_snippet", "",
+                                        duration_s=duration)
             elif intent.action == "open_help":
                 self._show_help()
+                vox_stats.increment("help_opens")
+                _help_tokens = raw_whisper_text.lower().split()
+                if _help_tokens and _help_tokens[-1] != "help":
+                    vox_stats.increment("fuzzy_help_saves")
+                vox_stats.log_decision(raw_whisper_text, "open_help",
+                                        f"confidence={intent.confidence}",
+                                        duration_s=duration)
             elif intent.action == "open_fix":
                 self._show_fix_surface()
+                vox_stats.increment("fix_opens")
+                vox_stats.log_decision(raw_whisper_text, "open_fix", "",
+                                        duration_s=duration)
+            elif intent.action == "open_stats":
+                self._show_stats_surface()
+                # Don't count opens of the stats view itself — too meta
+                vox_stats.log_decision(raw_whisper_text, "open_stats", "",
+                                        duration_s=duration)
 
         self.title = "\U0001f3a4"
         self._update_status("Idle -- ready")
@@ -336,6 +374,8 @@ class VoxType(rumps.App):
                 self.paster.paste(s.body)
                 self.snippet_store.record_use(top_id)
                 print(f"  Pasted snippet: {s.name}", flush=True)
+                vox_stats.increment("snippet_pastes")
+                vox_stats.log_decision(description, "paste_snippet", s.name, duration_s=0.0)
                 return
 
         # Medium confidence — show mini picker
@@ -403,6 +443,23 @@ class VoxType(rumps.App):
             "recent": recent_intents,
         })
 
+    def _show_stats_surface(self):
+        # Stats is a read-only view — don't intercept subsequent dictation
+        self.overlay_visible = False
+        data = vox_stats.load()
+        recent = vox_stats.recent_decisions(n=10)
+        # Add some derived fields the UI can show directly
+        data["_snippets_total"] = len(self.snippet_store.list_all())
+        data["_session_since"] = data.get("first_used_at")
+        self.overlay.send({
+            "type": "SHOW_STATS",
+            "stats": data,
+            "recent_decisions": recent,
+        })
+
+    def _on_stats_click(self, _sender):
+        self._show_stats_surface()
+
     def _on_help_click(self, _sender):
         self._show_help()
 
@@ -443,6 +500,8 @@ class VoxType(rumps.App):
             self.overlay.send({"type": "SNIPPETS", "items": [self._snippet_dict(s) for s in hits]})
         elif t == "DISMISSED":
             self.overlay_visible = False
+        elif t == "REQUEST_STATS":
+            self._show_stats_surface()
         elif t == "FIX_APPLY":
             desc = msg.get("description", "")
             fix = user_fixes.parse_heuristic(desc)

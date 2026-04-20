@@ -22,7 +22,7 @@ from typing import Literal
 from rapidfuzz import fuzz
 
 
-Action = Literal["dictate", "paste_snippet", "open_overview", "save_snippet", "open_help", "open_fix"]
+Action = Literal["dictate", "paste_snippet", "open_overview", "save_snippet", "open_help", "open_fix", "open_stats"]
 
 
 @dataclass
@@ -92,6 +92,7 @@ def reload_user_fixes():
     _EXTRA_CLIPBOARD_VARIANTS = set(data.get("clipboard_variants", []))
 
 _BARE_FIX_VARIANTS = {"fix", "fixed", "fixes", "fixing"}
+_BARE_STATS_VARIANTS = {"stats", "analytics", "statistics"}
 
 # Three-token trigger prefixes (for "bring up the snippet …")
 _THREE_TOKEN_TRIGGERS = {
@@ -145,6 +146,13 @@ def route(text: str) -> Intent:
             return Intent(action="open_help", confidence=conf)
         if word in _BARE_FIX_VARIANTS or fuzz.ratio(word, "fix") >= 60:
             return Intent(action="open_fix", confidence=0.95 if word == "fix" else 0.7)
+
+    # -- open_stats --
+    if len(tokens) == 1 and (tokens[0] in _BARE_STATS_VARIANTS or fuzz.ratio(tokens[0], "stats") >= 70):
+        return Intent(action="open_stats", confidence=0.95 if tokens[0] == "stats" else 0.7)
+    # Also handle "show stats" / "open stats"
+    if len(tokens) == 2 and tokens[0] in {"show", "open"} and (tokens[1] in _BARE_STATS_VARIANTS or fuzz.ratio(tokens[1], "stats") >= 70):
+        return Intent(action="open_stats", confidence=0.95)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)
@@ -237,8 +245,16 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
     if len(tokens) == 1 and (tokens[0] in _BARE_FIX_VARIANTS or fuzz.ratio(tokens[0], "fix") >= 60):
         return 1, False
 
+    # 1-token bare "stats" (or fuzzy-matching acoustic neighbor)
+    if len(tokens) == 1 and (tokens[0] in _BARE_STATS_VARIANTS or fuzz.ratio(tokens[0], "stats") >= 70):
+        return 1, False
+
     # 2-token compound "open/show + help-neighbor" — consume both
     if len(tokens) == 2 and tokens[0] in {"open", "show"} and (tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 60):
+        return 2, True
+
+    # 2-token compound "open/show + stats"
+    if len(tokens) == 2 and tokens[0] in {"open", "show"} and (tokens[1] in _BARE_STATS_VARIANTS or fuzz.ratio(tokens[1], "stats") >= 70):
         return 2, True
 
     # Flexible save: "save/safe/new/create [anything] snippet"

@@ -24,6 +24,36 @@ struct OverlayMessage: Codable {
     var recent: [RecentIntent]?
     var success: Bool?
     var message: String?
+    // Stats surface
+    var stats: StatsData?
+    var recent_decisions: [DecisionEntry]?
+}
+
+struct StatsData: Codable {
+    var recordings_total: Int?
+    var words_dictated_total: Int?
+    var snippet_pastes: Int?
+    var help_opens: Int?
+    var fix_opens: Int?
+    var overview_opens: Int?
+    var corrections_applied: Int?
+    var fuzzy_help_saves: Int?
+    var fuzzy_save_saves: Int?
+    var user_variant_saves: Int?
+    var autogen_name_used: Int?
+    var first_used_at: Int?
+    var _snippets_total: Int?
+    var _session_since: Int?
+}
+
+struct DecisionEntry: Codable, Identifiable {
+    var id: String { String(ts) + raw }
+    let ts: Int
+    let raw: String
+    let action: String
+    let detail: String
+    let duration_s: Double
+    let corrected: Bool
 }
 
 struct RecentIntent: Codable, Identifiable {
@@ -64,6 +94,8 @@ final class OverlayState: ObservableObject {
     @Published var recentIntents: [RecentIntent] = []
     @Published var fixResultMessage: String = ""
     @Published var fixResultSuccess: Bool = true
+    @Published var statsData: StatsData = StatsData()
+    @Published var statsDecisions: [DecisionEntry] = []
 }
 
 // MARK: - stdin reader
@@ -115,6 +147,12 @@ func startStdinReader(state: OverlayState, panel: NSPanel) {
                     state.draftBody = msg.body ?? ""
                     state.editingSnippet = nil
                     state.mode = "edit"
+                    panel.orderFrontRegardless()
+                    panel.makeKey()
+                case "SHOW_STATS":
+                    state.statsData = msg.stats ?? StatsData()
+                    state.statsDecisions = msg.recent_decisions ?? []
+                    state.mode = "stats"
                     panel.orderFrontRegardless()
                     panel.makeKey()
                 default:
@@ -181,6 +219,13 @@ struct OverlayView: View {
                 }
             }
             .keyboardShortcut(.delete, modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button("") {
+                emit(["type": "REQUEST_STATS"])
+            }
+            .keyboardShortcut("i", modifiers: .command)
             .frame(width: 0, height: 0)
             .opacity(0)
 
@@ -411,6 +456,116 @@ struct HelpView: View {
     }
 }
 
+struct StatsView: View {
+    @EnvironmentObject var state: OverlayState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("VoxType Stats")
+                .font(.system(size: 16, weight: .semibold))
+
+            counters
+            Divider()
+            demoSection
+            Divider()
+            Text("Esc to close").font(.system(size: 10)).foregroundColor(.secondary)
+        }
+        .padding(16)
+        .frame(width: 620, height: 520)
+        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+    }
+
+    private var counters: some View {
+        let s = state.statsData
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Activity").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+            HStack(spacing: 24) {
+                stat("Recordings", s.recordings_total ?? 0)
+                stat("Words", s.words_dictated_total ?? 0)
+                stat("Snippets", s._snippets_total ?? 0)
+                stat("Snippet pastes", s.snippet_pastes ?? 0)
+            }
+            HStack(spacing: 24) {
+                stat("Corrections caught", s.corrections_applied ?? 0)
+                stat("Fuzzy help saves", s.fuzzy_help_saves ?? 0)
+                stat("Help opens", s.help_opens ?? 0)
+                stat("Overview opens", s.overview_opens ?? 0)
+            }
+        }
+    }
+
+    private func stat(_ label: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(value))
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundColor(value > 0 ? .primary : .secondary)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var demoSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Recent decisions — raw Whisper vs what VoxType did")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            Text("Without VoxType's layers, everything in the left column would be pasted verbatim.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(state.statsDecisions) { d in
+                        decisionRow(d)
+                    }
+                }
+            }
+            .frame(maxHeight: 250)
+        }
+    }
+
+    private func decisionRow(_ d: DecisionEntry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Raw Whisper
+            Text(d.raw.isEmpty ? "—" : d.raw)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .frame(maxWidth: 250, alignment: .leading)
+                .foregroundColor(.secondary)
+            Text("→")
+                .foregroundColor(.secondary)
+            // Final action + detail
+            VStack(alignment: .leading, spacing: 1) {
+                Text(d.action)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(actionColor(d.action))
+                if !d.detail.isEmpty {
+                    Text(d.detail)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Text(String(format: "%.1fs", d.duration_s))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func actionColor(_ action: String) -> Color {
+        switch action {
+        case "dictate": return .primary
+        case "paste_snippet": return .green
+        case "open_help", "open_overview", "open_fix", "open_stats", "save_snippet": return .blue
+        case "skip_short", "skip_empty": return .orange
+        default: return .secondary
+        }
+    }
+}
+
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
@@ -436,6 +591,8 @@ struct RootView: View {
                 HelpView()
             } else if state.mode == "fix" {
                 FixView()
+            } else if state.mode == "stats" {
+                StatsView()
             } else if state.mode == "edit" {
                 if let s = state.editingSnippet {
                     EditorView(name: s.name, bodyText: s.body, description: s.description, tags: s.tags, editingID: s.id)
