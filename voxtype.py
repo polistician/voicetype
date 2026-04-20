@@ -155,12 +155,26 @@ class VoxType(rumps.App):
             print("Model still loading, please wait...", flush=True)
             return
         if self.recording:
-            # Already recording — ignore double-press
-            return
+            # Stale recording state — previous STOP was lost (Whisper thread
+            # hung, audio device got confused, etc.). Force-reset instead of
+            # silently no-op'ing, so the user's next Option+C press works.
+            print("  [warn] previous recording never released — force-resetting", flush=True)
+            try:
+                self.recorder.stop()  # drain stream & reset PortAudio
+            except Exception as e:
+                print(f"  [warn] recorder.stop() during reset failed: {e}", flush=True)
+            self.recording = False
         self.recording = True
         self.title = "\U0001f534"
         self._update_status("Recording...")
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except Exception as e:
+            print(f"  [err] recorder.start() failed: {e}", flush=True)
+            self.recording = False
+            self.title = "\U0001f3a4"
+            self._update_status("Idle -- ready")
+            return
         print("Recording...", flush=True)
 
     def _stop_recording(self):
