@@ -52,7 +52,14 @@ _TWO_TOKEN_TRIGGERS = {
     ("snip", "it"),
     ("show", "help"),
     ("open", "help"),
+    # Whisper misrecognitions of "help"
+    ("show", "hub"), ("open", "hub"),
+    ("show", "halp"), ("open", "halp"),
+    ("show", "helps"), ("open", "helps"),
 }
+
+# Whisper commonly mishears "help" as one of these when said quickly
+_HELP_VARIANTS = {"help", "hub", "halp", "helps"}
 
 # Three-token trigger prefixes (for "bring up the snippet …")
 _THREE_TOKEN_TRIGGERS = {
@@ -84,8 +91,9 @@ def route(text: str) -> Intent:
     joined_after = " ".join(after_tokens).lower()
 
     # -- open_help (check before open_overview — "show/open help" uses same verb prefix) --
-    if tokens[0:2] == ["show", "help"] or tokens[0:2] == ["open", "help"]:
-        return Intent(action="open_help", confidence=0.95)
+    if len(tokens) >= 2 and tokens[0] in {"show", "open"} and tokens[1] in _HELP_VARIANTS:
+        conf = 0.95 if tokens[1] == "help" else 0.75
+        return Intent(action="open_help", confidence=conf)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)

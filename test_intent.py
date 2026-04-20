@@ -47,8 +47,14 @@ CASES = [
     ("show help", "open_help", None),
     ("open help", "open_help", None),
     ("Show help.", "open_help", None),
+    # Whisper misrecognitions of "help"
+    ("open hub", "open_help", None),
+    ("show hub", "open_help", None),
+    ("open halp", "open_help", None),
     # "help" alone should NOT trigger — too ambiguous
     ("help me find that file", "dictate", None),
+    # "hub" alone should NOT trigger
+    ("the hub and spoke model", "dictate", None),
 ]
 
 
