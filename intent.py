@@ -58,8 +58,16 @@ _TWO_TOKEN_TRIGGERS = {
     ("show", "helps"), ("open", "helps"),
 }
 
-# Whisper commonly mishears "help" as one of these when said quickly
+# Whisper commonly mishears "help" as one of these when said with a prefix
+# ("open hub", "show halp") — these are safe because the prefix disambiguates.
 _HELP_VARIANTS = {"help", "hub", "halp", "helps"}
+
+# Bare single-word help — a broader set, because when said alone while
+# holding Option+C, acoustic neighbors of "help" are almost certainly
+# command intent (user saying "help" quickly).
+# Trade-off: someone dictating just "head" or "have" alone will instead
+# get the help screen; these are rare one-word dictations.
+_BARE_HELP_VARIANTS = _HELP_VARIANTS | {"head", "held", "have", "hep", "hulp"}
 
 # Three-token trigger prefixes (for "bring up the snippet …")
 _THREE_TOKEN_TRIGGERS = {
@@ -100,8 +108,9 @@ def route(text: str) -> Intent:
     if len(tokens) >= 2 and tokens[0] in {"show", "open"} and tokens[1] in _HELP_VARIANTS:
         conf = 0.95 if tokens[1] == "help" else 0.75
         return Intent(action="open_help", confidence=conf)
-    if len(tokens) == 1 and tokens[0] == "help":
-        return Intent(action="open_help", confidence=0.95)
+    if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
+        conf = 0.95 if tokens[0] == "help" else 0.65
+        return Intent(action="open_help", confidence=conf)
 
     # -- open_overview --
     # Check if the first token is an open verb (before the trigger)
@@ -186,8 +195,8 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
         if second in _SINGLE_TRIGGERS or fuzz.ratio(second, "snippet") >= 85 or fuzz.ratio(second, "snippets") >= 85:
             return 2, True
 
-    # 1-token bare "help" — user said just "help" by itself
-    if len(tokens) == 1 and tokens[0] == "help":
+    # 1-token bare "help" (or an acoustic neighbor Whisper produced)
+    if len(tokens) == 1 and tokens[0] in _BARE_HELP_VARIANTS:
         return 1, False
 
     # Flexible save: "save/safe/new/create [anything] snippet"

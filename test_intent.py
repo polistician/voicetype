@@ -63,6 +63,12 @@ CASES = [
     ("help", "open_help", None),
     ("Help", "open_help", None),
     ("help.", "open_help", None),
+    # Bare Whisper misrecognitions of "help" (observed in real usage)
+    ("head", "open_help", None),
+    ("have", "open_help", None),
+    ("held", "open_help", None),
+    ("hub", "open_help", None),
+    ("halp", "open_help", None),
     # Whisper misrecognitions of "help" with prefix
     ("open hub", "open_help", None),
     ("show hub", "open_help", None),
