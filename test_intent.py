@@ -37,6 +37,17 @@ CASES = [
     ("save snippet from clipboard", "save_snippet", None),
     ("new snippet", "save_snippet", None),
     ("create snippet from clipboard", "save_snippet", None),
+    # Flexible grammar: "save my X as a snippet"
+    ("save my clipboard as a snippet", "save_snippet", None),
+    ("save this as a snippet", "save_snippet", None),
+    ("create a new snippet from this", "save_snippet", None),
+    # Whisper misrecognitions: "save"→"safe", "clipboard"→"clip-bot"
+    ("safe snippet", "save_snippet", None),
+    ("safe my clip-bot as a snippet", "save_snippet", None),
+    ("safe my clipboard as a snippet", "save_snippet", None),
+    # "save" without snippet mention stays dictate
+    ("save the file", "dictate", None),
+    ("safe place to hide it", "dictate", None),
 
     # --- case + punctuation robustness ---
     ("Snippet Deploy v3", "paste_snippet", "Deploy v3"),

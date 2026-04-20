@@ -70,7 +70,12 @@ _THREE_TOKEN_TRIGGERS = {
 # Action keywords (second-layer parse, after trigger detected)
 _OPEN_VERBS = {"open", "show", "launch", "bring"}
 _OPEN_NOUNS = {"overview", "overlay", "manager", "list", "snippets"}
-_SAVE_VERBS = {"save", "new", "create"}
+# "safe" is a common Whisper misrecognition of "save"
+_SAVE_VERBS = {"save", "new", "create", "safe"}
+
+# Words that count as "the user mentioned the clipboard" — includes common
+# Whisper misrecognitions ("clip-bot", "clip bot", "clipped").
+_CLIPBOARD_HINTS = ("clipboard", "clip-bot", "clip bot", "clipboards", "clipped")
 
 
 def route(text: str) -> Intent:
@@ -134,7 +139,9 @@ def route(text: str) -> Intent:
 
     # -- save_snippet --
     if first_token in _SAVE_VERBS:
-        return Intent(action="save_snippet", payload={"from_clipboard": "clipboard" in joined_after}, confidence=0.95)
+        full = " ".join(tokens)
+        from_clipboard = any(h in full for h in _CLIPBOARD_HINTS)
+        return Intent(action="save_snippet", payload={"from_clipboard": from_clipboard}, confidence=0.95)
 
     # -- open_overview fallback for single-trigger "snippets" preceded by open verb --
     # (handled above via is_compound_trigger)
@@ -179,6 +186,14 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
     # 1-token bare "help" — user said just "help" by itself
     if len(tokens) == 1 and tokens[0] == "help":
         return 1, False
+
+    # Flexible save: "save/safe/new/create [anything] snippet"
+    # Handles "save my clipboard as a snippet", "safe my clip-bot as snippet", etc.
+    if tokens[0] in _SAVE_VERBS and len(tokens) >= 2:
+        for t in tokens[1:]:
+            clean = re.sub(r"[^a-z]", "", t)
+            if clean and (fuzz.ratio(clean, "snippet") >= 80 or fuzz.ratio(clean, "snippets") >= 80):
+                return len(tokens), True
 
     # 1-token direct match
     if tokens[0] in _SINGLE_TRIGGERS:

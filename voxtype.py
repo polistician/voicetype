@@ -117,7 +117,7 @@ class VoxType(rumps.App):
         self.transcriber = TranscriberV2(model_path=model_path)
 
         # Bias Whisper toward snippet trigger words + snippet names
-        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help"}
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help", "clipboard"}
         for s in self.snippet_store.list_all():
             for tok in s.name.split():
                 if tok.isalpha() and len(tok) > 2:
@@ -135,7 +135,7 @@ class VoxType(rumps.App):
     def _refresh_whisper_vocab(self):
         if not self.transcriber:
             return
-        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help"}
+        bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help", "clipboard"}
         for s in self.snippet_store.list_all():
             for tok in s.name.split():
                 if tok.isalpha() and len(tok) > 2:
