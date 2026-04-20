@@ -392,6 +392,8 @@ class VoxType(rumps.App):
             if s:
                 self.paster.paste(s.body)
                 self.snippet_store.record_use(s.id)
+            # Overlay closes after paste — clear flag so next Option+C dictates
+            self.overlay_visible = False
         elif t == "SAVE_FROM_CLIPBOARD":
             # Capture strip ⌘S — route through the save flow so autogen fires
             self._open_overlay(mode="save", from_clipboard=True)
