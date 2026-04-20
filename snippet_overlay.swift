@@ -408,48 +408,69 @@ struct PickerView: View {
 
 struct HelpView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("VoxType Help")
-                .font(.system(size: 16, weight: .semibold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("VoxType Help")
+                    .font(.system(size: 16, weight: .semibold))
 
-            Group {
-                Text("Quick actions").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
-                VStack(alignment: .leading, spacing: 4) {
-                    helpRow("Option+C (hold)", "dictate — transcribe and paste")
-                    helpRow("Option+T", "translate clipboard to selected language")
-                    helpRow("Option+Shift+S", "open snippet manager")
+                Group {
+                    Text("Global hotkeys").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        helpRow("⌥ C (hold)", "dictate — transcribe and paste")
+                        helpRow("⌥ T", "translate clipboard to selected language")
+                        helpRow("⌥ ⇧ S", "open snippet manager")
+                    }
+
+                    Text("Voice commands — hold ⌥ C and say…").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        helpRow("\"snippet <description>\"", "paste snippet matching the description")
+                        helpRow("\"open snippet overview\"", "open the manager")
+                        helpRow("\"save snippet from clipboard\"", "create snippet from clipboard body")
+                        helpRow("\"help\" / \"open help\"", "show this screen")
+                        helpRow("\"fix\"", "open the fix surface to teach VoxType")
+                        helpRow("\"stats\" / \"show stats\"", "open the stats & demo surface")
+                    }
+
+                    Text("Inside the snippet manager").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        helpRow("↑ ↓ + ⏎", "navigate and paste")
+                        helpRow("⌘ N / ⌘ E / ⌘ ⌫", "new / edit / delete snippet")
+                        helpRow("⌥ C (hold)", "dictate a search query")
+                        helpRow("⌘ I", "open stats / demo surface")
+                        helpRow("?", "show this help")
+                        helpRow("Esc (from list)", "close overlay")
+                        helpRow("Esc (from stats/help/fix/edit)", "back to list")
+                    }
                 }
 
-                Text("Voice commands (hold Option+C and say…)").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+                Divider().padding(.vertical, 2)
+
+                Text("Surfaces").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
                 VStack(alignment: .leading, spacing: 4) {
-                    helpRow("\"snippet <description>\"", "paste snippet matching the description")
-                    helpRow("\"open snippet overview\"", "open the manager")
-                    helpRow("\"save snippet from clipboard\"", "create snippet from clipboard")
-                    helpRow("\"show help\" / \"open help\"", "show this screen")
+                    helpRow("List", "browse & filter snippets (this is the default mode)")
+                    helpRow("Edit", "create or edit a snippet (⌘N / ⌘E)")
+                    helpRow("Picker", "pick one of the top 3 snippets when voice match is ambiguous — press 1 / 2 / 3")
+                    helpRow("Fix", "teach VoxType to recognize a phrase differently — voice \"fix\"")
+                    helpRow("Stats", "counters + demo of layers catching mis-hearings — ⌘I or voice \"stats\"")
+                    helpRow("Help", "this screen")
                 }
 
-                Text("Inside the snippet manager").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
-                VStack(alignment: .leading, spacing: 4) {
-                    helpRow("↑ ↓ + ⏎", "navigate and paste")
-                    helpRow("⌘N / ⌘E / ⌘⌫", "new / edit / delete snippet")
-                    helpRow("Option+C (hold)", "dictate a search query")
-                    helpRow("?", "show this help")
-                    helpRow("Esc", "close")
-                }
+                Divider().padding(.vertical, 2)
+
+                Text("What this does").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                Text("VoxType is a voice + keyboard input system. Dictate naturally, or issue voice commands like \"snippet deploy v3\" to paste by meaning — no need to remember exact names. Inside the manager, keyboard is precise and voice is semantic. Matches with high confidence paste directly; medium confidence shows a 3-option picker; low confidence opens the manager with your query pre-filled. When VoxType mis-routes something, say \"fix\" and teach it — the correction is hot-reloaded into the intent router immediately.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Esc — back to snippet list")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
             }
-
-            Divider().padding(.vertical, 2)
-
-            Text("What this does").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
-            Text("VoxType is a voice + keyboard input system. Dictate naturally, or issue voice commands like \"snippet deploy v3\" to paste by meaning — no need to remember exact names. The manager (⌥⇧S) lets you create, edit, and browse snippets; inside it, keyboard is precise and voice is semantic. Matches with high confidence paste directly; medium confidence shows a 3-option picker; low confidence opens the manager with your query pre-filled.")
-                .font(.system(size: 11))
-                .foregroundColor(.primary.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("Esc to close").font(.system(size: 10)).foregroundColor(.secondary).padding(.top, 4)
+            .padding(16)
         }
-        .padding(16)
-        .frame(width: 500)
+        .frame(width: 540, height: 560)
         .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
     }
 
@@ -469,6 +490,7 @@ struct HelpView: View {
 struct StatsView: View {
     @EnvironmentObject var state: OverlayState
     @State private var expandedIds: Set<String> = []
+    @State private var savesOnly: Bool = false
 
     private var savesTotal: Int {
         let s = state.statsData
@@ -476,6 +498,21 @@ struct StatsView: View {
              + (s.fuzzy_help_saves ?? 0)
              + (s.fuzzy_save_saves ?? 0)
              + (s.user_variant_saves ?? 0)
+    }
+
+    private var decisionsFiltered: [DecisionEntry] {
+        if !savesOnly { return state.statsDecisions }
+        return state.statsDecisions.filter { isSave($0) }
+    }
+
+    private func isSave(_ d: DecisionEntry) -> Bool {
+        // A "save" = a decision that would have gone wrong without VoxType's layers.
+        if d.corrected { return true }  // correction fired
+        if d.action == "open_help" && !d.raw.lowercased().hasSuffix("help") { return true }
+        if d.action == "save_snippet" && d.raw.lowercased().hasPrefix("safe") { return true }
+        // paste_snippet from voice: always a save (raw wouldn't have pasted the snippet)
+        if d.action == "paste_snippet" { return true }
+        return false
     }
 
     var body: some View {
@@ -504,19 +541,29 @@ struct StatsView: View {
     }
 
     private var savesHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(String(savesTotal))
-                .font(.system(size: 44, weight: .bold, design: .rounded))
-                .foregroundColor(savesTotal > 0 ? .green : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Misrecognitions caught")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("Without VoxType's layers, these would have been pasted as garbage text or dropped silently.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        Button(action: { savesOnly.toggle() }) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(String(savesTotal))
+                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .foregroundColor(savesTotal > 0 ? .green : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Misrecognitions caught")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(savesOnly ? "· showing saves only" : "· click to filter")
+                            .font(.system(size: 10))
+                            .foregroundColor(savesOnly ? .green : .secondary)
+                    }
+                    Text("Without VoxType's layers, these would have been pasted as garbage text or dropped silently.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PlainButtonStyle())
     }
 
     private var counters: some View {
@@ -551,21 +598,37 @@ struct StatsView: View {
 
     private var demoSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Recent decisions — raw Whisper vs what VoxType did")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary)
-            Text("Without VoxType's layers, everything in the left column would be pasted verbatim.")
+            HStack {
+                Text(savesOnly
+                     ? "Caught misrecognitions — raw Whisper vs what VoxType did"
+                     : "Recent decisions — raw Whisper vs what VoxType did")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if savesOnly {
+                    Button("Show all") { savesOnly = false }
+                        .buttonStyle(LinkButtonStyle())
+                        .font(.system(size: 10))
+                }
+            }
+            Text("Click any row for the side-by-side.")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(state.statsDecisions) { d in
+            if decisionsFiltered.isEmpty {
+                Text(savesOnly
+                     ? "No saves yet in recent decisions. Use VoxType more and come back."
+                     : "No decisions recorded yet.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 20)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(decisionsFiltered) { d in
                         decisionRow(d)
                     }
                 }
             }
-            .frame(maxHeight: 250)
         }
     }
 
@@ -906,9 +969,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             if event.keyCode == 53 { // Esc
-                self.panel.orderOut(nil)
-                self.state.mode = "list"
-                emit(["type": "DISMISSED"])
+                // Sub-modes (help/stats/fix/edit) → back to list instead of closing.
+                // Only Esc from the list view itself closes the whole overlay.
+                if self.state.mode == "list" {
+                    self.panel.orderOut(nil)
+                    emit(["type": "DISMISSED"])
+                } else {
+                    self.state.mode = "list"
+                }
                 return nil
             }
             return event
