@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-CORRECTIONS_PATH = os.path.expanduser("~/.voxtype/corrections.json")
+CORRECTIONS_PATH = os.path.expanduser("~/.voicetype/corrections.json")
 
 
 def _load() -> dict:

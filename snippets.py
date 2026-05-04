@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-DEFAULT_DB_PATH = os.path.expanduser("~/.voxtype/snippets.db")
+DEFAULT_DB_PATH = os.path.expanduser("~/.voicetype/snippets.db")
 
 
 @dataclass

@@ -1,7 +1,7 @@
 # voice_profile.py
 """Local voice profile — learns how YOU speak, improves Whisper over time.
 
-Stored at ~/.voxtype/profile.json. Updated after every transcription.
+Stored at ~/.voicetype/profile.json. Updated after every transcription.
 Read on every transcription to feed vocabulary into Whisper's initial_prompt.
 
 No server, no API, no SOMA dependency. Pure local self-improvement.
@@ -13,7 +13,7 @@ import json
 import os
 from collections import Counter
 
-PROFILE_PATH = os.path.expanduser("~/.voxtype/profile.json")
+PROFILE_PATH = os.path.expanduser("~/.voicetype/profile.json")
 
 
 def _load() -> dict:

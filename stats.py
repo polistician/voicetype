@@ -2,8 +2,8 @@
 """Persistent usage stats + recent-decisions log for VoxType.
 
 Two files:
-  ~/.voxtype/stats.json        — monotonic counters
-  ~/.voxtype/decisions.jsonl   — last 50 transcriptions with raw+final (for Demo)
+  ~/.voicetype/stats.json        — monotonic counters
+  ~/.voicetype/decisions.jsonl   — last 50 transcriptions with raw+final (for Demo)
 """
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from collections import deque
 from typing import Optional
 
 
-STATS_PATH = os.path.expanduser("~/.voxtype/stats.json")
-DECISIONS_PATH = os.path.expanduser("~/.voxtype/decisions.jsonl")
+STATS_PATH = os.path.expanduser("~/.voicetype/stats.json")
+DECISIONS_PATH = os.path.expanduser("~/.voicetype/decisions.jsonl")
 _DECISIONS_KEEP = 50
 
 _DEFAULT_STATS = {

@@ -1,7 +1,7 @@
 # user_fixes.py
 """User-editable intent variants & corrections, loaded at runtime.
 
-Stored at ~/.voxtype/user_intent_fixes.json. Merged with hardcoded
+Stored at ~/.voicetype/user_intent_fixes.json. Merged with hardcoded
 variants in intent.py. Lets the user grow VoxType's tolerance to
 Whisper misrecognitions without code changes.
 """
@@ -14,7 +14,7 @@ import threading
 from typing import Optional
 
 
-FIXES_PATH = os.path.expanduser("~/.voxtype/user_intent_fixes.json")
+FIXES_PATH = os.path.expanduser("~/.voicetype/user_intent_fixes.json")
 
 _DEFAULT = {
     "help_variants": [],
