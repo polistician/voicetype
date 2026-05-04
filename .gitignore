@@ -5,8 +5,13 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Build outputs
-build/
+# Build outputs (PyInstaller writes intermediates to build/<spec_name>/ — keep
+# our source scripts at build/*.sh, *.spec, *.json tracked)
+build/*
+!build/*.sh
+!build/*.spec
+!build/*.json
+!build/*.md
 dist/
 *.dmg
 *.dmg.sha256
