@@ -61,10 +61,14 @@ class TranscriberV2:
         # Build initial prompt from learned vocabulary
         prompt = getattr(self, "_prompt", "")
 
-        # Transcribe with enhanced parameters
+        # Transcribe with enhanced parameters.
+        # language='en' anchors the multilingual model to English while still
+        # letting it pick up German proper nouns mixed in (Berlin, Tor, etc.).
+        # Without this hint, the model can drift to German on ambiguous clips.
         params = {
             "token_timestamps": True,
             "extract_probability": True,
+            "language": "en",
         }
         if prompt:
             params["initial_prompt"] = prompt

@@ -1,6 +1,38 @@
+# Python
 .venv/
-models/
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+*.pyd
+
+# Build outputs
+build/
+dist/
+*.dmg
+*.dmg.sha256
+*.icns
+
+# Models (downloaded at install/build time, not source)
+models/
+
+# Compiled Swift binaries at repo root (sources are tracked, binaries are not)
+hotkey_helper
+paste_helper
+
+# Bundle is a build artifact, not source
+VoxType.app/
+VoiceType.app/
+
+# Brainstorming/plan working dir
 .superpowers/
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Local config you don't want to publish
+.env

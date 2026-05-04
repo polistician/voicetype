@@ -130,6 +130,8 @@ def get_whisper_prompt() -> str:
 
     # Filter out common English — Whisper already knows these.
     # Only feed domain-specific terms that Whisper would otherwise miss.
+    # An over-long initial_prompt causes Whisper to drift its output toward the
+    # prompt's style, hurting general transcription. Keep it short and focused.
     _COMMON = {
         "the", "and", "you", "have", "that", "but", "not", "for", "would",
         "it's", "like", "should", "this", "what", "are", "when", "then",
@@ -144,13 +146,29 @@ def get_whisper_prompt() -> str:
         "most", "tell", "between", "before", "able", "everything", "etc",
         "if", "is", "it", "to", "of", "in", "on", "or", "be", "so",
         "do", "at", "by", "an", "no", "up", "my", "we", "he", "she",
+        "idea", "more", "log", "page", "different", "create", "through",
+        "did", "will", "note", "hello", "says", "too", "menu", "record",
+        "feedback", "even", "similar", "other", "thing", "addition", "fix",
+        "their", "type", "good", "actions", "day", "been", "interface",
+        "settings", "click", "could", "chat", "quick", "home", "research",
+        "user", "users", "agent", "agents", "page", "pages", "use", "used",
+        "uses", "using", "now", "here", "very", "really", "much", "many",
+        "any", "into", "both", "each", "had", "her", "him", "his", "its",
+        "let", "lets", "may", "might", "need", "needs", "next", "off", "our",
+        "over", "people", "send", "sent", "should", "since", "such", "than",
+        "their", "these", "those", "told", "try", "trying", "until", "us",
+        "we're", "weren't", "while", "who", "whom", "whose", "with", "within",
     }
-    domain_words = [w for w in frequent if w.lower() not in _COMMON]
+    domain_words = [
+        w for w in frequent
+        if w.lower() not in _COMMON and len(w) >= 4
+    ]
 
     if not domain_words:
         return ""
-    # Natural sentence format — Whisper mimics punctuation style of prompt
-    return "Words I use: " + " ".join(domain_words[:50])
+    # Cap at 15: long prompts cause Whisper to bias output toward the prompt's
+    # style and hallucinate phantom words from the list during silence.
+    return "Words I use: " + " ".join(domain_words[:15])
 
 
 def get_low_confidence_words() -> list[str]:

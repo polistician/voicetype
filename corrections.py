@@ -140,8 +140,6 @@ def _edit_distance_1(a: str, b: str) -> bool:
 _DOMAIN_DEFAULTS = {
     "fox": "vox",
     "fox type": "VoxType",
-    "box": "vox",
-    "box type": "VoxType",
     "soma hook": "SOMA hook",
     "in gram": "engram",
     "n gram": "engram",

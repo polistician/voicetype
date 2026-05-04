@@ -73,7 +73,7 @@ try:
 except Exception:
     _user_data = {"help_variants": [], "snippet_variants": [], "save_variants": [], "clipboard_variants": []}
 
-_BARE_HELP_VARIANTS = _HELP_VARIANTS | {"head", "held", "have", "hep", "hulp"} | set(_user_data["help_variants"])
+_BARE_HELP_VARIANTS = _HELP_VARIANTS | {"hep", "hulp"} | set(_user_data["help_variants"])
 _EXTRA_SNIPPET_VARIANTS = set(_user_data["snippet_variants"])
 _EXTRA_SAVE_VARIANTS = set(_user_data["save_variants"])
 _EXTRA_CLIPBOARD_VARIANTS = set(_user_data["clipboard_variants"])
@@ -86,7 +86,7 @@ def reload_user_fixes():
         data = _user_fixes.load()
     except Exception:
         return
-    _BARE_HELP_VARIANTS = _HELP_VARIANTS | {"head", "held", "have", "hep", "hulp"} | set(data.get("help_variants", []))
+    _BARE_HELP_VARIANTS = _HELP_VARIANTS | {"hep", "hulp"} | set(data.get("help_variants", []))
     _EXTRA_SNIPPET_VARIANTS = set(data.get("snippet_variants", []))
     _EXTRA_SAVE_VARIANTS = set(data.get("save_variants", []))
     _EXTRA_CLIPBOARD_VARIANTS = set(data.get("clipboard_variants", []))
@@ -136,15 +136,15 @@ def route(text: str) -> Intent:
     # so one-word utterances acoustically near "help" / "fix" are almost
     # certainly commands, not dictation. Catches "hope", "fist", etc.
     if len(tokens) == 2 and tokens[0] in {"show", "open"}:
-        if tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 60:
+        if tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 85:
             conf = 0.95 if tokens[1] == "help" else 0.7
             return Intent(action="open_help", confidence=conf)
     if len(tokens) == 1:
         word = tokens[0]
-        if word in _BARE_HELP_VARIANTS or fuzz.ratio(word, "help") >= 60:
+        if word in _BARE_HELP_VARIANTS or fuzz.ratio(word, "help") >= 85:
             conf = 0.95 if word == "help" else 0.65
             return Intent(action="open_help", confidence=conf)
-        if word in _BARE_FIX_VARIANTS or fuzz.ratio(word, "fix") >= 60:
+        if word in _BARE_FIX_VARIANTS or fuzz.ratio(word, "fix") >= 85:
             return Intent(action="open_fix", confidence=0.95 if word == "fix" else 0.7)
 
     # -- open_stats --
@@ -238,11 +238,11 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
             return 2, True
 
     # 1-token bare "help" (or fuzzy-matching acoustic neighbor)
-    if len(tokens) == 1 and (tokens[0] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[0], "help") >= 60):
+    if len(tokens) == 1 and (tokens[0] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[0], "help") >= 85):
         return 1, False
 
     # 1-token bare "fix" (or fuzzy-matching acoustic neighbor)
-    if len(tokens) == 1 and (tokens[0] in _BARE_FIX_VARIANTS or fuzz.ratio(tokens[0], "fix") >= 60):
+    if len(tokens) == 1 and (tokens[0] in _BARE_FIX_VARIANTS or fuzz.ratio(tokens[0], "fix") >= 85):
         return 1, False
 
     # 1-token bare "stats" (or fuzzy-matching acoustic neighbor)
@@ -250,7 +250,7 @@ def _detect_trigger(tokens: list[str]) -> tuple[int | None, bool]:
         return 1, False
 
     # 2-token compound "open/show + help-neighbor" — consume both
-    if len(tokens) == 2 and tokens[0] in {"open", "show"} and (tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 60):
+    if len(tokens) == 2 and tokens[0] in {"open", "show"} and (tokens[1] in _BARE_HELP_VARIANTS or fuzz.ratio(tokens[1], "help") >= 85):
         return 2, True
 
     # 2-token compound "open/show + stats"

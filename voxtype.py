@@ -156,6 +156,22 @@ class VoxType(rumps.App):
     def _update_status(self, status):
         self._status_item.title = f"Status: {status}"
 
+    def _flash_skip(self, reason: str):
+        """Briefly show skip feedback so the user knows the recording was rejected.
+
+        Sets the menubar title to a 'no' icon + reason, then resets after 1.8s.
+        Without this, skipped recordings look identical to silent failures and
+        the user wonders why no new text appeared.
+        """
+        self.title = "\U0001f6ab"  # 🚫
+        self._update_status(f"Skipped: {reason}")
+        def _reset():
+            import time
+            time.sleep(1.8)
+            self.title = "\U0001f3a4"  # 🎤
+            self._update_status("Idle -- ready")
+        threading.Thread(target=_reset, daemon=True).start()
+
     def _start_recording(self):
         if not self._model_loaded.is_set():
             print("Model still loading, please wait...", flush=True)
@@ -206,8 +222,19 @@ class VoxType(rumps.App):
             print(f"  [skip] audio too short ({duration:.2f}s < {self.cfg['min_audio_seconds']}s)", flush=True)
             vox_stats.log_decision("", "skip_short", f"{duration:.2f}s < {self.cfg['min_audio_seconds']}s",
                                     duration_s=duration)
-            self.title = "\U0001f3a4"
-            self._update_status("Idle -- ready")
+            self._flash_skip(f"too short ({duration:.2f}s)")
+            return
+
+        # Energy gate: Whisper hallucinates plausible-sounding text on near-silent
+        # audio (e.g. "hope", "the", "mcgillum.com" on accidental short presses).
+        # RMS check skips clips with no real speech energy before they reach Whisper.
+        import numpy as _np
+        rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
+        min_rms = self.cfg.get("min_rms", 0.005)
+        if rms < min_rms:
+            print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
+            vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
+            self._flash_skip("too quiet")
             return
 
         # Rich transcription: text + confidence + timing
@@ -224,8 +251,21 @@ class VoxType(rumps.App):
             print(f"  [skip] whisper returned empty text (audio {duration:.2f}s)", flush=True)
             vox_stats.log_decision("", "skip_empty", f"audio {duration:.2f}s",
                                     duration_s=duration)
-            self.title = "\U0001f3a4"
-            self._update_status("Idle -- ready")
+            self._flash_skip("no speech detected")
+            return
+
+        # Low-confidence short-output gate: catches Whisper hallucinations that
+        # slip past the energy gate. Real one-word commands ("okay", "yes") have
+        # high confidence; hallucinations like "hope"/"hello" sit at 0.3-0.55.
+        max_words = self.cfg.get("hallucination_max_words", 2)
+        min_conf = self.cfg.get("hallucination_min_confidence", 0.6)
+        avg_conf = rich.get("avg_confidence", 0) or 0
+        word_count = len(text.split())
+        if word_count <= max_words and 0 < avg_conf < min_conf:
+            print(f"  [skip] likely hallucination ({word_count}w, conf={avg_conf:.2f}): {text!r}", flush=True)
+            vox_stats.log_decision(text, "skip_hallucination",
+                                    f"{word_count}w conf={avg_conf:.2f}", duration_s=duration)
+            self._flash_skip(f"low confidence ({avg_conf:.2f})")
             return
 
         if text:
