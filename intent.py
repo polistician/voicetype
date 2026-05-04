@@ -62,11 +62,10 @@ _TWO_TOKEN_TRIGGERS = {
 # ("open hub", "show halp") — these are safe because the prefix disambiguates.
 _HELP_VARIANTS = {"help", "hub", "halp", "helps"}
 
-# Bare single-word help — a broader set, because when said alone while
-# holding Option+C, acoustic neighbors of "help" are almost certainly
-# command intent (user saying "help" quickly).
-# Trade-off: someone dictating just "head" or "have" alone will instead
-# get the help screen; these are rare one-word dictations.
+# Single-word triggers — fuzzy threshold raised to 85 (from 60) and common
+# acoustic neighbors (head/held/have) removed: at threshold 60 those words
+# fired the help screen during normal dictation. Real one-word "help" hits
+# fuzz.ratio = 100 anyway; raising the gate doesn't lose real intent.
 try:
     import user_fixes as _user_fixes
     _user_data = _user_fixes.load()
