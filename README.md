@@ -1,25 +1,39 @@
-## Snippets
+# VoiceType
 
-VoxType includes a voice + keyboard snippet manager.
+Local voice dictation for macOS. Hold ⌥ C, speak, the words paste into whatever app you were just typing in. Whisper.cpp runs on your laptop. Audio never leaves the machine.
 
-### Invocation
+Site: https://voicetype.polistician.ai
+Download: https://github.com/polistician/voicetype/releases/latest
 
-**Voice (hold Option+C):**
-- `snippet <description>` → paste the snippet matching that description (e.g. "snippet deploy the crypto app")
-- `open snippet overview` → opens the manager
-- `save snippet from clipboard` → creates a new snippet with the clipboard body
+## What it does
 
-**Keyboard:**
-- `Option+Shift+S` — open the manager
-- Inside the manager:
-  - `↑↓` navigate, `⏎` paste, `Esc` close
-  - `⌘N` new, `⌘E` edit, `⌘⌫` delete
-  - Hold `Option+C` inside the manager to dictate a search query
+- **Dictate** — voice to text in any app that accepts ⌘V.
+- **Steer** — configure custom voice commands. Say `help`, the settings overlay opens. Say a saved phrase name, the saved text pastes itself.
+- **Translate** — optional. Drop a DeepL API key into Settings and VoiceType translates as it pastes.
 
-### How reliable matching works
+## Install
 
-1. Whisper is primed with trigger words + snippet names as vocabulary.
-2. `rapidfuzz` catches Whisper misrecognitions like "snipped", "senate", "snippets".
-3. A rule-based router picks the action (paste / open / save).
-4. `mxbai-embed-xsmall-v1` embeddings rank candidates by meaning.
-5. Confidence gate: >0.75 pastes directly, 0.55–0.75 shows a 3-option picker, <0.55 opens the manager with the query pre-filled.
+Download `VoiceType.dmg` from the Releases page → drag to Applications → right-click → Open (one-time Gatekeeper bypass) → grant Microphone + Accessibility → hold ⌥ C.
+
+The first launch shows a 4-screen guided onboarding (welcome → permissions → live dictation tutorial → optional API key).
+
+## Build from source
+
+```bash
+git clone https://github.com/polistician/voicetype.git
+cd voicetype
+./install.sh         # installs deps, downloads Whisper model
+./build/release.sh    # builds VoiceType.app + DMG
+```
+
+## Privacy
+
+What stays on your laptop: audio, transcripts, vocabulary, snippets, corrections, statistics, decision log.
+
+What leaves your laptop: only DeepL translation requests, only if you've added a DeepL key in Settings.
+
+API keys (DeepL etc.) are stored in macOS Keychain, never in plaintext config files.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
