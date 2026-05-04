@@ -6,14 +6,14 @@ Saves audio + corrected transcript pairs. When enough data accumulates
 personalized Whisper adapter (~10MB) that dramatically improves
 recognition accuracy for this specific user.
 
-Data saved to ~/.voxtype/training/
+Data saved to ~/.voicetype/training/
 """
 import os
 import json
 import numpy as np
 from datetime import datetime
 
-TRAINING_DIR = os.path.expanduser("~/.voxtype/training")
+TRAINING_DIR = os.path.expanduser("~/.voicetype/training")
 
 
 def save_training_pair(audio: np.ndarray, transcript: str, corrected: str = None,

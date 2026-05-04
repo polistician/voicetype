@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-ANALYSIS_PATH = os.path.expanduser("~/.voxtype/pronunciation.json")
+ANALYSIS_PATH = os.path.expanduser("~/.voicetype/pronunciation.json")
 
 # German→English known problem phonemes
 # These are L1 transfer issues for German native speakers

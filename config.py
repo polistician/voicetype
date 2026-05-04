@@ -4,7 +4,7 @@ import os
 
 DEFAULT_CONFIG = {
     "model": "base.en",
-    "model_dir": os.path.expanduser("~/voxtype/models"),
+    "model_dir": os.path.expanduser("~/voicetype/models"),
     "sample_rate": 16000,
     "min_audio_seconds": 0.3,
     "deepl_api_key": "",
@@ -26,7 +26,7 @@ LANGUAGES = {
     "ZH": "Chinese",
 }
 
-CONFIG_PATH = os.path.expanduser("~/.voxtype/config.json")
+CONFIG_PATH = os.path.expanduser("~/.voicetype/config.json")
 
 
 def load_config() -> dict:

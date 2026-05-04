@@ -1,7 +1,7 @@
 # suggestions.py
 """Snippet suggestions mined from the user's recent dictations.
 
-Scan ~/.voxtype/decisions.jsonl for phrases dictated repeatedly. If the
+Scan ~/.voicetype/decisions.jsonl for phrases dictated repeatedly. If the
 same transcription comes up 3+ times and isn't already a saved snippet,
 it's a candidate the user will probably want as a snippet.
 

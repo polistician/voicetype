@@ -79,7 +79,7 @@ _EXTRA_CLIPBOARD_VARIANTS = set(_user_data["clipboard_variants"])
 
 
 def reload_user_fixes():
-    """Reload user variants from ~/.voxtype/user_intent_fixes.json."""
+    """Reload user variants from ~/.voicetype/user_intent_fixes.json."""
     global _BARE_HELP_VARIANTS, _EXTRA_SNIPPET_VARIANTS, _EXTRA_SAVE_VARIANTS, _EXTRA_CLIPBOARD_VARIANTS
     try:
         data = _user_fixes.load()
