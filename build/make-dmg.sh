@@ -1,5 +1,7 @@
 #!/bin/bash
-# make-dmg.sh — build VoiceType.dmg from dist/VoiceType.app + Install.command
+# make-dmg.sh — build VoiceType.dmg from dist/VoiceType.app
+# Simple 2-item DMG: VoiceType.app + Applications shortcut. Period.
+# (Install.command + INSTALL.md live in the repo for troubleshooting.)
 set -euo pipefail
 
 REPO=/Users/beauregard/voicetype
@@ -7,7 +9,6 @@ APP="$REPO/dist/VoiceType.app"
 DMG="$REPO/dist/VoiceType.dmg"
 BG="$REPO/assets/dmg-background.png"
 VOLUME_ICON="$REPO/assets/app-icon.icns"
-INSTALL_CMD="$REPO/build/Install.command"
 STAGE="$REPO/dist/dmg-stage"
 
 if [ ! -d "$APP" ]; then
@@ -19,13 +20,10 @@ fi
 [ -f "$VOLUME_ICON" ] || "$REPO/build/make-icns.sh"
 [ -f "$BG" ] || "$REPO/build/render-dmg-bg.sh"
 
-# Stage the contents the DMG should hold
+# Stage just the .app — keep DMG minimal
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/VoiceType.app"
-cp "$INSTALL_CMD" "$STAGE/Install.command"
-chmod +x "$STAGE/Install.command"
-cp "$REPO/INSTALL.md" "$STAGE/INSTALL.md"
 
 # Remove old DMG
 rm -f "$DMG" "$DMG.sha256"
@@ -36,13 +34,11 @@ create-dmg \
     --volicon "$VOLUME_ICON" \
     --background "$BG" \
     --window-pos 200 100 \
-    --window-size 1280 800 \
-    --icon-size 96 \
-    --icon "VoiceType.app" 360 340 \
-    --icon "Install.command" 360 580 \
-    --icon "INSTALL.md" 920 580 \
+    --window-size 800 480 \
+    --icon-size 128 \
+    --icon "VoiceType.app" 220 230 \
     --hide-extension "VoiceType.app" \
-    --app-drop-link 920 340 \
+    --app-drop-link 580 230 \
     --hdiutil-quiet \
     "$DMG" \
     "$STAGE"

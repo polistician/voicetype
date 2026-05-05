@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" width="1280" height="800">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" width="800" height="480">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0d0e12"/>
@@ -7,49 +7,41 @@
     </linearGradient>
   </defs>
 
-  <!-- Background -->
-  <rect width="1280" height="800" fill="url(#bg)"/>
+  <rect width="800" height="480" fill="url(#bg)"/>
 
-  <!-- Wordmark -->
-  <text x="640" y="120" font-family="-apple-system, sans-serif"
-        font-size="58" font-weight="700" text-anchor="middle"
-        letter-spacing="-2">
-    <tspan fill="#4d8fdb">Voice</tspan><tspan fill="#e8eaf0">Type</tspan>
+  <!-- Wordmark top -->
+  <text x="400" y="80" font-family="-apple-system, sans-serif"
+        font-size="38" font-weight="700" text-anchor="middle"
+        letter-spacing="-1.2">
+    <tspan fill="#7eb1e8">Voice</tspan><tspan fill="#ffffff">Type</tspan>
   </text>
-  <text x="640" y="172" font-family="-apple-system, sans-serif"
-        font-size="20" text-anchor="middle" fill="#7a8194">
+  <text x="400" y="112" font-family="-apple-system, sans-serif"
+        font-size="14" text-anchor="middle" fill="#a8b0c0">
     hold ⌥ C, speak, the text appears.
   </text>
 
-  <!-- STEP 1 label centered above the primary icon row (icons are at y=340) -->
-  <text x="640" y="262" font-family="-apple-system, sans-serif"
-        font-size="13" text-anchor="middle" fill="#4d8fdb"
-        letter-spacing="3" font-weight="600">
-    STEP 1 — DRAG VOICETYPE TO APPLICATIONS
-  </text>
-
-  <!-- Drag arrow between the primary icons (VoiceType.app at x=360, Applications at x=920) -->
-  <line x1="455" y1="340" x2="825" y2="340"
-        stroke="#4d8fdb" stroke-width="3"
-        stroke-linecap="round" stroke-dasharray="10 8"/>
-  <polyline points="810,326 828,340 810,354"
-            fill="none" stroke="#4d8fdb" stroke-width="3"
+  <!-- Drag arrow between the two icons (icons placed by create-dmg at x=220 and x=580, y=230) -->
+  <line x1="310" y1="230" x2="490" y2="230"
+        stroke="#7eb1e8" stroke-width="3"
+        stroke-linecap="round" stroke-dasharray="9 7"/>
+  <polyline points="478,218 492,230 478,242"
+            fill="none" stroke="#7eb1e8" stroke-width="3"
             stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- STEP 2 label above the secondary icon row (icons at y=580) -->
-  <text x="640" y="500" font-family="-apple-system, sans-serif"
-        font-size="13" text-anchor="middle" fill="#7a8194"
-        letter-spacing="3" font-weight="600">
-    STEP 2 (OPTIONAL) — RUN INSTALL.COMMAND OR READ INSTALL.MD
+  <!-- Drag instruction (light gray for high contrast on dark) -->
+  <text x="400" y="370" font-family="-apple-system, sans-serif"
+        font-size="13" text-anchor="middle" fill="#c8d0e0"
+        letter-spacing="2" font-weight="600">
+    DRAG VOICETYPE TO APPLICATIONS
   </text>
 
-  <!-- Bottom: Gatekeeper instruction -->
-  <text x="640" y="730" font-family="-apple-system, sans-serif"
-        font-size="14" text-anchor="middle" fill="#e8eaf0">
-    First launch: <tspan fill="#4d8fdb" font-weight="600">System Settings → Privacy &amp; Security → Open Anyway</tspan>
+  <!-- Bottom: Gatekeeper note -->
+  <text x="400" y="420" font-family="-apple-system, sans-serif"
+        font-size="12" text-anchor="middle" fill="#a8b0c0">
+    First launch: <tspan fill="#7eb1e8" font-weight="600">System Settings → Privacy &amp; Security → Open Anyway</tspan>
   </text>
-  <text x="640" y="754" font-family="-apple-system, sans-serif"
-        font-size="13" text-anchor="middle" fill="#7a8194" opacity="0.7">
-    macOS warns once because we don't pay Apple's notarization fee. Click past it; you'll never see it again.
+  <text x="400" y="442" font-family="-apple-system, sans-serif"
+        font-size="11" text-anchor="middle" fill="#7a8194">
+    macOS warns once. Click past it; you'll never see it again.
   </text>
 </svg>

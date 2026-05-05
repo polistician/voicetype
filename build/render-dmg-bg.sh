@@ -6,7 +6,7 @@ if ! command -v rsvg-convert >/dev/null 2>&1; then
     brew install librsvg
 fi
 
-rsvg-convert -w 1280 -h 800 \
+rsvg-convert -w 800 -h 480 \
     /Users/beauregard/voicetype/assets/dmg-background.svg \
     -o /Users/beauregard/voicetype/assets/dmg-background.png
 
