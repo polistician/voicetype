@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let canPost = CGPreflightPostEventAccess()
         let isTrusted = AXIsProcessTrusted()
         fputs("PERMISSIONS: AXTrusted=\(isTrusted) CGPostAccess=\(canPost)\n", stdout)
+        fputs("AX_TRUSTED: \(isTrusted)\n", stdout)
         fflush(stdout)
 
         if !canPost {

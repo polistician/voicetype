@@ -58,10 +58,71 @@ class OnboardingState: ObservableObject {
     @Published var keyError: String = ""
 
     // Permission check via Swift APIs (no Python round-trip needed)
+
+    /// Probe hotkey_helper as a subprocess and read its self-reported AX trust state.
+    /// This avoids the onboarding binary's own trust being unrelated to hotkey_helper's trust.
+    func probeAccessibility() -> Bool {
+        let task = Process()
+        let pipe = Pipe()
+
+        // Resolve bundled helper path, fall back to source-tree path in dev mode
+        let bundledPath = Bundle.main.bundlePath + "/Contents/Frameworks/hotkey_helper"
+        let devPath = NSHomeDirectory() + "/voicetype/hotkey_helper"
+        let fm = FileManager.default
+        let actualPath: String
+        if fm.fileExists(atPath: bundledPath) {
+            actualPath = bundledPath
+        } else if fm.fileExists(atPath: devPath) {
+            actualPath = devPath
+        } else {
+            return false
+        }
+
+        task.executableURL = URL(fileURLWithPath: actualPath)
+        task.standardOutput = pipe
+        task.standardError = Pipe()  // discard stderr
+
+        do {
+            try task.run()
+        } catch {
+            return false
+        }
+
+        // Read for up to 1 second, stop as soon as we see the AX_TRUSTED line
+        let deadline = Date().addingTimeInterval(1.0)
+        var collected = ""
+        while Date() < deadline {
+            let data = pipe.fileHandleForReading.availableData
+            if data.isEmpty {
+                Thread.sleep(forTimeInterval: 0.05)
+            } else if let s = String(data: data, encoding: .utf8) {
+                collected += s
+                if collected.contains("AX_TRUSTED:") { break }
+            }
+        }
+
+        task.terminate()
+
+        // Parse the "AX_TRUSTED: true|false" line emitted by hotkey_helper on startup
+        for line in collected.components(separatedBy: "\n") {
+            if line.contains("AX_TRUSTED:") {
+                return line.contains("true")
+            }
+        }
+        return false
+    }
+
     func refreshPermissions() {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         micOK = (micStatus == .authorized)
-        accessOK = AXIsProcessTrusted()
+        // Probe hotkey_helper (the binary that actually needs Accessibility) rather
+        // than checking trust for this onboarding binary itself.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let axGranted = self.probeAccessibility()
+            DispatchQueue.main.async {
+                self.accessOK = axGranted
+            }
+        }
     }
 
     func handle(_ msg: OBInMessage) {
@@ -162,7 +223,13 @@ struct PermissionsView: View {
                     detail: "To hear your voice",
                     ok: state.micOK,
                     settingsAction: {
-                        obEmit(OBOutEvent(type: "open_pref_pane", pane: "microphone"))
+                        // Request mic access directly — macOS pops native consent dialog
+                        // and adds VoiceType to the Microphone list automatically.
+                        AVCaptureDevice.requestAccess(for: .audio) { granted in
+                            DispatchQueue.main.async {
+                                state.micOK = granted
+                            }
+                        }
                     }
                 )
                 PermRowView(
@@ -174,7 +241,7 @@ struct PermissionsView: View {
                     }
                 )
             }
-            Text("Click \"Open System Settings\", grant the permission, then return here. The status updates automatically.")
+            Text("For Microphone, click the row and allow the native dialog. For Accessibility, open System Settings and grant access to VoiceType. Status updates automatically.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
