@@ -37,7 +37,13 @@ a = Analysis(
     ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["torch", "torchaudio", "torchvision"],
+    excludes=[
+        "torch", "torchaudio", "torchvision",
+        "transformers", "sentence_transformers",
+        "tokenizers",
+        "scipy",
+        "PIL", "matplotlib",
+    ],
     noarchive=False,
 )
 

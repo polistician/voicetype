@@ -5,10 +5,9 @@ import subprocess
 import threading
 import os
 
-HELPER_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "VoxType.app", "Contents", "MacOS", "hotkey_helper"
-)
+from paths import helper_path as _resolve_helper
+
+HELPER_PATH = _resolve_helper("hotkey_helper")
 
 
 class HotkeyListener:

@@ -16,7 +16,6 @@ from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
 from intent import route as route_intent
 from snippets import Store as SnippetStore
-from embedder import Embedder
 from transcript_history import History as TranscriptHistory
 from autogen import generate as autogen_metadata
 import numpy as np
@@ -86,14 +85,17 @@ class VoxType(rumps.App):
 
     def _load_embedder(self):
         try:
+            from embedder import Embedder  # lazy: pulls in sentence-transformers + torch
             self.embedder = Embedder()
             self._rebuild_snippet_cache()
             self._embedder_ready.set()
             print("Embedder loaded", flush=True)
         except Exception as e:
-            print(f"Embedder failed to load: {e}", flush=True)
+            print(f"Embedder failed to load (snippet semantic match disabled): {e}", flush=True)
+            self.embedder = None
 
     def _rebuild_snippet_cache(self):
+        from embedder import Embedder  # already loaded at this point; cached by Python
         self.snippet_cache.clear()
         for s in self.snippet_store.list_all():
             if s.embedding:
@@ -649,6 +651,7 @@ class VoxType(rumps.App):
         """Create a snippet and compute its embedding inline so it's matchable right away."""
         s = self.snippet_store.create(name=name, body=body, description=description, tags=tags)
         if self._embedder_ready.is_set() and self.embedder:
+            from embedder import Embedder  # already loaded; cached by Python
             vec = self.embedder.encode(f"{name}. {description}. Tags: {tags}")
             self.snippet_store.update(s.id, embedding=Embedder.array_to_blob(vec))
             self.snippet_cache[s.id] = vec
@@ -659,6 +662,7 @@ class VoxType(rumps.App):
         text_fields = {"name", "description", "tags"}
         self.snippet_store.update(id, **fields)
         if self._embedder_ready.is_set() and any(k in fields for k in text_fields):
+            from embedder import Embedder  # already loaded; cached by Python
             s = self.snippet_store.get(id)
             vec = self.embedder.encode(f"{s.name}. {s.description}. Tags: {s.tags}")
             self.snippet_store.update(id, embedding=Embedder.array_to_blob(vec))

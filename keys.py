@@ -13,8 +13,7 @@ import json
 import os
 import subprocess
 
-
-HELPER_PATH = os.path.expanduser("~/voicetype/keys_helper")
+from paths import helper_path as _resolve_helper
 
 
 class KeyNotFound(Exception):
@@ -26,7 +25,9 @@ class KeyStoreError(Exception):
 
 
 class KeyStore:
-    def __init__(self, helper_path: str = HELPER_PATH):
+    def __init__(self, helper_path: str = None):
+        if helper_path is None:
+            helper_path = _resolve_helper("keys_helper")
         self.helper_path = helper_path
 
     def _call(self, payload: dict) -> dict:

@@ -28,11 +28,9 @@ import subprocess
 import threading
 from typing import Callable, Optional
 
+from paths import helper_path as _resolve_helper
 
-HELPER_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "VoxType.app", "Contents", "MacOS", "snippet_overlay",
-)
+HELPER_PATH = _resolve_helper("snippet_overlay")
 
 
 class OverlayBridge:
@@ -88,10 +86,7 @@ class OverlayBridge:
 # Settings window bridge
 # ---------------------------------------------------------------------------
 
-SETTINGS_HELPER_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "settings_window",
-)
+SETTINGS_HELPER_PATH = _resolve_helper("settings_window")
 
 
 def verify_deepl(key: str) -> tuple[bool, str]:
@@ -229,10 +224,7 @@ class SettingsBridge:
 # Onboarding window bridge
 # ---------------------------------------------------------------------------
 
-ONBOARDING_HELPER_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "onboarding",
-)
+ONBOARDING_HELPER_PATH = _resolve_helper("onboarding")
 
 
 class OnboardingBridge:
