@@ -32,11 +32,13 @@ class VoxType(rumps.App):
         self._lang_menu = rumps.MenuItem("Output Language")
         self._build_lang_menu()
 
+        self._settings_item = rumps.MenuItem("Settings…", callback=self._on_settings_click)
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
         self.menu = [
             self._status_item, None, self._lang_menu, None,
             f"Model: {self.cfg['model']}", None,
+            self._settings_item,
             self._help_item, self._stats_item,
         ]
 
@@ -108,6 +110,14 @@ class VoxType(rumps.App):
             item = rumps.MenuItem(f"{prefix}{label}", callback=self._on_lang_select)
             item._lang_code = code
             self._lang_menu.add(item)
+
+    def _on_settings_click(self, _sender):
+        """Open the Settings window via the SettingsBridge."""
+        if not hasattr(self, "settings"):
+            from overlay_bridge import SettingsBridge
+            self.settings = SettingsBridge()
+            self.settings.start()
+        self.settings.open_window()
 
     def _on_lang_select(self, sender):
         self.output_language = sender._lang_code
