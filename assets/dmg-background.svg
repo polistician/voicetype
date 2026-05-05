@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" width="1280" height="800">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d0e12"/>
+      <stop offset="1" stop-color="#1a1d28"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="800" fill="url(#bg)"/>
+
+  <!-- Faint keycap watermark -->
+  <g opacity="0.18" transform="translate(560,80)">
+    <rect x="32" y="40" width="184" height="172" rx="32" fill="#4d8fdb"/>
+    <rect x="48" y="56" width="152" height="132" rx="22" fill="#7eb1e8"/>
+    <text x="128" y="142" font-size="78" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system, sans-serif" letter-spacing="-2">⌥ C</text>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="640" y="160" font-family="-apple-system, sans-serif" font-size="56" font-weight="700" text-anchor="middle" letter-spacing="-2">
+    <tspan fill="#4d8fdb">Voice</tspan><tspan fill="#e8eaf0">Type</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="640" y="208" font-family="-apple-system, sans-serif" font-size="20" text-anchor="middle" fill="#7a8194">hold ⌥ C, speak, the text appears.</text>
+
+  <!-- Drag target placeholder (left) -->
+  <rect x="280" y="380" width="160" height="160" rx="18" fill="none" stroke="#4d8fdb" stroke-width="2" stroke-dasharray="6 6" opacity="0.4"/>
+  <text x="360" y="468" font-family="-apple-system, sans-serif" font-size="13" text-anchor="middle" fill="#7a8194">drag</text>
+
+  <!-- Arrow -->
+  <line x1="500" y1="460" x2="780" y2="460" stroke="#4d8fdb" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 6"/>
+  <polyline points="765,448 780,460 765,472" fill="none" stroke="#4d8fdb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Applications target placeholder (right) -->
+  <!-- (the actual Applications shortcut is dropped on top of this region by create-dmg) -->
+
+  <!-- Gatekeeper note -->
+  <text x="640" y="700" font-family="-apple-system, sans-serif" font-size="14" text-anchor="middle" fill="#7a8194">First time? After dragging: <tspan fill="#4d8fdb" font-weight="600">right-click VoiceType → Open</tspan>.</text>
+  <text x="640" y="724" font-family="-apple-system, sans-serif" font-size="13" text-anchor="middle" fill="#7a8194" opacity="0.6">macOS warns once because we don't pay Apple's notarization fee. Click past it; you'll never see it again.</text>
+</svg>

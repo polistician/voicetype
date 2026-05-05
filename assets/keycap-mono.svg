@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="32" y="40" width="184" height="172" rx="32" fill="none" stroke="currentColor" stroke-width="6"/>
+  <rect x="48" y="56" width="152" height="132" rx="22" fill="none" stroke="currentColor" stroke-width="3"/>
+  <text x="128" y="142"
+        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif"
+        font-size="78" font-weight="700"
+        text-anchor="middle" fill="currentColor"
+        letter-spacing="-2">⌥ C</text>
+</svg>

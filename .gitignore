@@ -16,6 +16,7 @@ dist/
 *.dmg
 *.dmg.sha256
 *.icns
+assets/app-icon.iconset/
 
 # Models (downloaded at install/build time, not source)
 models/

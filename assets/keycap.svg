@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="keycapBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a9dec"/>
+      <stop offset="1" stop-color="#3d6fa8"/>
+    </linearGradient>
+    <linearGradient id="keycapTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7eb1e8"/>
+      <stop offset="1" stop-color="#4d8fdb"/>
+    </linearGradient>
+  </defs>
+  <rect x="36" y="48" width="184" height="172" rx="32" fill="#1a3050" opacity="0.6"/>
+  <rect x="32" y="40" width="184" height="172" rx="32" fill="url(#keycapBody)"/>
+  <rect x="48" y="56" width="152" height="132" rx="22" fill="url(#keycapTop)"/>
+  <text x="128" y="142"
+        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif"
+        font-size="78" font-weight="700"
+        text-anchor="middle" fill="#ffffff"
+        letter-spacing="-2">⌥ C</text>
+</svg>
