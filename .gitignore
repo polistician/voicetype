@@ -12,6 +12,7 @@ build/*
 !build/*.spec
 !build/*.json
 !build/*.md
+!build/*.command
 dist/
 *.dmg
 *.dmg.sha256
