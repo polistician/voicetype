@@ -27,6 +27,7 @@ class VoxType(rumps.App):
         super().__init__("VoxType", title="\U0001f3a4")
         self.cfg = load_config()
         save_default_config()
+        self._maybe_run_onboarding()
 
         self._status_item = rumps.MenuItem("Status: Idle")
         self._lang_menu = rumps.MenuItem("Output Language")
@@ -669,6 +670,27 @@ class VoxType(rumps.App):
         self.snippet_store.delete(id)
         self.snippet_cache.pop(id, None)
         self._refresh_whisper_vocab()
+
+    # ------------------------------------------------------------------
+    # First-launch onboarding
+    # ------------------------------------------------------------------
+
+    def _maybe_run_onboarding(self):
+        """If no onboarding_complete flag, launch the onboarding flow."""
+        flag = os.path.expanduser("~/.voicetype/onboarding_complete")
+        if os.path.exists(flag):
+            return
+        from overlay_bridge import OnboardingBridge
+        self.onboarding = OnboardingBridge(
+            on_complete=lambda: self._mark_onboarding_done(flag)
+        )
+        self.onboarding.start()
+        self.onboarding.open_window()
+
+    def _mark_onboarding_done(self, flag: str):
+        os.makedirs(os.path.dirname(flag), exist_ok=True)
+        with open(flag, "w") as f:
+            f.write("1")
 
     def _do_translate_clipboard(self):
         import subprocess
