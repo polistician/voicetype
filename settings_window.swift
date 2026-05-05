@@ -189,7 +189,7 @@ struct SettingsView: View {
                 .padding(.top, 12)
             HStack {
                 Toggle("Auto-paste (synthesize \u{2318}V)", isOn: $state.autoPaste)
-                    .onChange(of: state.autoPaste) { newValue in
+                    .onChange(of: state.autoPaste) { _, newValue in
                         emit(OutEvent(type: "set_setting", key: "auto_paste", boolValue: newValue))
                     }
                 Spacer()
