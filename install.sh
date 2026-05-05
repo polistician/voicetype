@@ -33,6 +33,7 @@ fi
 # Compile Swift helpers
 echo "Compiling Swift helpers..."
 swiftc ~/voxtype/snippet_overlay.swift -o ~/voxtype/VoxType.app/Contents/MacOS/snippet_overlay
+swiftc ~/voicetype/keys_helper.swift -o ~/voicetype/keys_helper
 
 # Create launchd plist for auto-start
 PLIST=~/Library/LaunchAgents/com.voxtype.app.plist

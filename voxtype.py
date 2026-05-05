@@ -45,9 +45,9 @@ class VoxType(rumps.App):
         seed_defaults()  # Load domain corrections (fox→vox, etc.)
         self.output_language = self.cfg.get("output_language", "EN")
 
-        # Set up translator if API key is configured
-        api_key = self.cfg.get("deepl_api_key", "")
-        self.translator = Translator(api_key) if api_key else None
+        # Translator always exists — it lazy-loads the key from Keychain at translate-time
+        # (with config.json fallback for backward compat). No-op if no key configured.
+        self.translator = Translator()
 
         # Load model in background to not block menubar
         self._model_loaded = threading.Event()
@@ -361,7 +361,7 @@ class VoxType(rumps.App):
 
     def _translate_clipboard(self):
         """Option+T: read clipboard, auto-detect language, translate, paste."""
-        if not self.translator:
+        if not self.translator._get_key():
             print("No DeepL API key configured", flush=True)
             return
         threading.Thread(target=self._do_translate_clipboard, daemon=True).start()
@@ -386,7 +386,7 @@ class VoxType(rumps.App):
             pass
 
     def _dictate_paste(self, text: str):
-        if self.output_language != "EN" and self.translator:
+        if self.output_language != "EN" and self.translator._get_key():
             self._update_status("Translating...")
             text = self.translator.translate(text, self.output_language)
         self.paster.paste(text)
