@@ -774,11 +774,12 @@ class VoxType(rumps.App):
     # ------------------------------------------------------------------
 
     def _on_update_click(self, _sender):
-        """Check GitHub Releases for a newer version. Show NSAlert with result."""
+        """Check GitHub Releases for a newer version. Show NSAlert with result.
+        If newer, offer to update in-app."""
         threading.Thread(target=self._check_for_updates, daemon=True).start()
 
     def _check_for_updates(self):
-        import urllib.request, json, subprocess, sys
+        import urllib.request, json
         try:
             with urllib.request.urlopen(
                 "https://api.github.com/repos/polistician/voicetype/releases/latest",
@@ -791,19 +792,7 @@ class VoxType(rumps.App):
                              buttons=["OK"])
             return
         latest = (data.get("tag_name", "") or "").lstrip("v")
-        # Read current VERSION — works in source-tree and bundled mode
-        current = "unknown"
-        for path in [
-            os.path.expanduser("~/voicetype/VERSION"),
-            os.path.join(getattr(sys, "_MEIPASS", ""), "VERSION"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"),
-        ]:
-            try:
-                with open(path) as f:
-                    current = f.read().strip()
-                break
-            except Exception:
-                continue
+        current = self._read_current_version()
         if not latest:
             self._show_alert("Update check failed",
                              "Could not determine latest version.",
@@ -814,15 +803,69 @@ class VoxType(rumps.App):
                              f"You're on v{current}, the latest version.",
                              buttons=["OK"])
             return
-        # Newer version available
-        dmg_url = "https://github.com/polistician/voicetype/releases/latest/download/VoiceType.dmg"
+        # Newer version available — offer in-app update
         clicked = self._show_alert(
             f"Update available: v{latest}",
-            f"You're on v{current}. Download v{latest}? VoiceType opens a browser to the release page — drag the new DMG to Applications.",
-            buttons=["Download", "Later"]
+            f"You're on v{current}. Update now? VoiceType will download v{latest}, verify it, install to /Applications, and relaunch automatically.",
+            buttons=["Update Now", "Later"]
         )
-        if "Download" in clicked:
-            subprocess.run(["open", dmg_url], check=False)
+        if "Update Now" in clicked:
+            self._perform_update_async(latest)
+
+    def _perform_update_async(self, new_version_label: str):
+        """Run the updater on a background thread; show progress + final alert."""
+        from updater import perform_update, relaunch, UpdateError, APP_PATH
+
+        def _run():
+            # Bundled-mode safety: require /Applications/VoiceType.app exists.
+            # If not, the user is running source-tree — direct them to manual install.
+            if not os.path.isdir(APP_PATH):
+                self._show_alert(
+                    "Source-tree mode",
+                    "You're running VoiceType from source, not from /Applications/VoiceType.app. Install via DMG once first, then in-app updates will work.",
+                    buttons=["OK"]
+                )
+                return
+
+            def _on_progress(msg: str):
+                print(f"[updater] {msg}", flush=True)
+
+            try:
+                new_v = perform_update(on_progress=_on_progress)
+            except UpdateError as e:
+                self._show_alert("Update failed", str(e), buttons=["OK"])
+                return
+            except Exception as e:
+                self._show_alert("Update failed", f"Unexpected error: {e}", buttons=["OK"])
+                return
+
+            clicked = self._show_alert(
+                f"Updated to v{new_v}",
+                "VoiceType has been updated. Click OK to relaunch.\n\nNote: macOS may ask you to re-grant Microphone + Accessibility because the new binary has a different signature.",
+                buttons=["Relaunch", "Later"]
+            )
+            if "Relaunch" in clicked:
+                relaunch()
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _read_current_version(self) -> str:
+        """Resolve VERSION from source-tree, _MEIPASS, or app bundle."""
+        import sys
+        paths = [
+            os.path.expanduser("~/voicetype/VERSION"),
+            os.path.join(getattr(sys, "_MEIPASS", ""), "VERSION"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"),
+        ]
+        for p in paths:
+            try:
+                with open(p) as f:
+                    v = f.read().strip()
+                    if v:
+                        return v
+            except Exception:
+                pass
+        return "unknown"
 
     def _show_alert(self, title: str, message: str, buttons: list) -> str:
         """Show a native NSAlert via osascript. Returns the clicked button name."""
