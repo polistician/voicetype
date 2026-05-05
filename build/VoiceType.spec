@@ -28,7 +28,10 @@ a = Analysis(
     binaries=swift_helpers,
     datas=model_files + [
         (os.path.join(HOME, "assets", "menubar-mic.pdf"), "assets"),
-    ] if os.path.exists(os.path.join(HOME, "assets", "menubar-mic.pdf")) else model_files,
+        (os.path.join(HOME, "VERSION"), "."),
+    ] if os.path.exists(os.path.join(HOME, "assets", "menubar-mic.pdf")) else model_files + [
+        (os.path.join(HOME, "VERSION"), "."),
+    ],
     hiddenimports=[
         "pywhispercpp", "pywhispercpp.model",
         "rumps", "sounddevice",

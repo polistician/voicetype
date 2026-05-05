@@ -15,3 +15,11 @@ class Paster:
         if not text or not self._hotkey:
             return
         self._hotkey.paste(text)
+
+    def set_clipboard_only(self, text: str):
+        """Write to clipboard without synthesizing Cmd+V (manual-paste mode)."""
+        import subprocess
+        try:
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=False, timeout=2)
+        except Exception:
+            pass

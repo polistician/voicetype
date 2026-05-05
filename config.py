@@ -13,6 +13,8 @@ DEFAULT_CONFIG = {
     # descriptions the regex parser can't handle. Uses the user's existing
     # Claude Code sign-in (no API key). Default off — opt-in.
     "use_claude_cli_for_fix": False,
+    # If False, clipboard is set but ⌘V is not synthesized — user pastes manually.
+    "auto_paste": True,
 }
 
 LANGUAGES = {

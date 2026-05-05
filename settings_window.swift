@@ -14,12 +14,16 @@ struct InMessage: Codable {
     var present: Bool?
     var ok: Bool?
     var error: String?
+    var key: String?
+    var boolValue: Bool?
 }
 
 struct OutEvent: Codable {
     let type: String
     var account: String?
     var value: String?
+    var key: String?
+    var boolValue: Bool?
 }
 
 func emit(_ event: OutEvent) {
@@ -37,6 +41,7 @@ class SettingsState: ObservableObject {
     @Published var deeplStatus: String = ""  // "verifying", "verified", "error: ...", ""
     @Published var deeplError: String = ""
     @Published var revealKey: Bool = false
+    @Published var autoPaste: Bool = true
 
     func handle(_ msg: InMessage) {
         switch msg.type {
@@ -56,6 +61,10 @@ class SettingsState: ObservableObject {
                     self.deeplStatus = "verify_failed"
                     self.deeplError = msg.error ?? "verification failed"
                 }
+            }
+        case "setting_status":
+            if msg.key == "auto_paste", let v = msg.boolValue {
+                self.autoPaste = v
             }
         default:
             break
@@ -172,10 +181,27 @@ struct SettingsView: View {
                 .textCase(.uppercase)
                 .padding(.top, 4)
             KeyRow(state: state, label: "DeepL", account: "deepl")
+
+            Text("Behavior")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .padding(.top, 12)
+            HStack {
+                Toggle("Auto-paste (synthesize \u{2318}V)", isOn: $state.autoPaste)
+                    .onChange(of: state.autoPaste) { newValue in
+                        emit(OutEvent(type: "set_setting", key: "auto_paste", boolValue: newValue))
+                    }
+                Spacer()
+            }
+            .padding(14)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+
             Spacer()
         }
         .padding(20)
-        .frame(width: 480, height: 360)
+        .frame(width: 480, height: 430)
         .background(Color(NSColor.windowBackgroundColor))
     }
 }
@@ -189,7 +215,7 @@ class SettingsWindowController: NSWindowController {
         self.state = state
         let view = NSHostingView(rootView: SettingsView(state: state))
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 430),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -247,7 +273,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             controller.bringToFront()
         case "close":
             controller.window?.orderOut(nil)
-        case "key_status", "verify_result":
+        case "key_status", "verify_result", "setting_status":
             state.handle(msg)
         default:
             break

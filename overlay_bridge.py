@@ -172,12 +172,15 @@ class SettingsBridge:
 
         if event_type == "refresh_status":
             self._on_refresh_status(account)
+            self._emit_setting_status("auto_paste")
         elif event_type == "verify_key":
             self._on_verify_key(account, msg.get("value", ""))
         elif event_type == "set_key":
             self._on_set_key(account, msg.get("value", ""))
         elif event_type == "delete_key":
             self._on_delete_key(account)
+        elif event_type == "set_setting":
+            self._on_set_setting(msg.get("key", ""), msg.get("boolValue"))
         elif event_type == "window_closed":
             # User closed the window — subprocess stays alive for reopening
             pass
@@ -218,6 +221,34 @@ class SettingsBridge:
         except Exception as e:
             print(f"[settings] delete_key error: {e}", flush=True)
         self._send({"type": "key_status", "account": account, "present": False})
+
+    def _on_set_setting(self, key: str, bool_value) -> None:
+        """Update a boolean setting in config.json."""
+        cfg_path = os.path.expanduser("~/.voicetype/config.json")
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        cfg[key] = bool_value
+        try:
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f, indent=2)
+            print(f"[settings] set {key}={bool_value}", flush=True)
+        except Exception as e:
+            print(f"[settings] set_setting write error: {e}", flush=True)
+
+    def _emit_setting_status(self, key: str) -> None:
+        """Emit current setting value to the settings window."""
+        cfg_path = os.path.expanduser("~/.voicetype/config.json")
+        defaults = {"auto_paste": True}
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            value = cfg.get(key, defaults.get(key, True))
+        except Exception:
+            value = defaults.get(key, True)
+        self._send({"type": "setting_status", "key": key, "boolValue": value})
 
 
 # ---------------------------------------------------------------------------

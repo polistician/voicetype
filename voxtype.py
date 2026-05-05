@@ -32,12 +32,14 @@ class VoxType(rumps.App):
         self._lang_menu = rumps.MenuItem("Output Language")
         self._build_lang_menu()
 
+        self._update_item = rumps.MenuItem("Check for Updates…", callback=self._on_update_click)
         self._settings_item = rumps.MenuItem("Settings…", callback=self._on_settings_click)
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
         self.menu = [
             self._status_item, None, self._lang_menu, None,
             f"Model: {self.cfg['model']}", None,
+            self._update_item,
             self._settings_item,
             self._help_item, self._stats_item,
         ]
@@ -404,8 +406,12 @@ class VoxType(rumps.App):
         if self.output_language != "EN" and self.translator._get_key():
             self._update_status("Translating...")
             text = self.translator.translate(text, self.output_language)
-        self.paster.paste(text)
-        print(f"Pasted: {text}", flush=True)
+        if self.cfg.get("auto_paste", True):
+            self.paster.paste(text)
+            print(f"Pasted: {text}", flush=True)
+        else:
+            self.paster.set_clipboard_only(text)
+            print(f"Clipboard set (manual paste): {text}", flush=True)
 
     def _handle_paste_snippet(self, description: str):
         if not self._embedder_ready.is_set():
@@ -762,6 +768,78 @@ class VoxType(rumps.App):
         os.makedirs(os.path.dirname(flag), exist_ok=True)
         with open(flag, "w") as f:
             f.write("1")
+
+    # ------------------------------------------------------------------
+    # Update check
+    # ------------------------------------------------------------------
+
+    def _on_update_click(self, _sender):
+        """Check GitHub Releases for a newer version. Show NSAlert with result."""
+        threading.Thread(target=self._check_for_updates, daemon=True).start()
+
+    def _check_for_updates(self):
+        import urllib.request, json, subprocess, sys
+        try:
+            with urllib.request.urlopen(
+                "https://api.github.com/repos/polistician/voicetype/releases/latest",
+                timeout=10
+            ) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            self._show_alert("Update check failed",
+                             f"Could not reach GitHub: {e}",
+                             buttons=["OK"])
+            return
+        latest = (data.get("tag_name", "") or "").lstrip("v")
+        # Read current VERSION — works in source-tree and bundled mode
+        current = "unknown"
+        for path in [
+            os.path.expanduser("~/voicetype/VERSION"),
+            os.path.join(getattr(sys, "_MEIPASS", ""), "VERSION"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"),
+        ]:
+            try:
+                with open(path) as f:
+                    current = f.read().strip()
+                break
+            except Exception:
+                continue
+        if not latest:
+            self._show_alert("Update check failed",
+                             "Could not determine latest version.",
+                             buttons=["OK"])
+            return
+        if latest == current:
+            self._show_alert("VoiceType is up to date",
+                             f"You're on v{current}, the latest version.",
+                             buttons=["OK"])
+            return
+        # Newer version available
+        dmg_url = "https://github.com/polistician/voicetype/releases/latest/download/VoiceType.dmg"
+        clicked = self._show_alert(
+            f"Update available: v{latest}",
+            f"You're on v{current}. Download v{latest}? VoiceType opens a browser to the release page — drag the new DMG to Applications.",
+            buttons=["Download", "Later"]
+        )
+        if "Download" in clicked:
+            subprocess.run(["open", dmg_url], check=False)
+
+    def _show_alert(self, title: str, message: str, buttons: list) -> str:
+        """Show a native NSAlert via osascript. Returns the clicked button name."""
+        import subprocess
+        buttons_str = ", ".join(f'"{b}"' for b in buttons)
+        script = (
+            f'display alert "{title}" message "{message}" '
+            f'buttons {{{buttons_str}}} default button "{buttons[0]}"'
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=300
+            )
+            return result.stdout.strip()
+        except Exception:
+            return ""
 
     def _do_translate_clipboard(self):
         import subprocess
