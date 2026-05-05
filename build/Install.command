@@ -23,6 +23,11 @@ echo "🔧 Removing macOS quarantine from /Applications/VoiceType.app..."
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 echo "✓ Done."
 echo ""
+echo "🔧 Registering with macOS so Spotlight can find it..."
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
+mdimport "$APP" 2>/dev/null || true
+echo "✓ Done."
+echo ""
 echo "Now launch VoiceType from /Applications normally."
 echo "On first run, macOS will ask for Microphone + Accessibility — grant both."
 echo ""

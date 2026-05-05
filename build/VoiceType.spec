@@ -105,6 +105,12 @@ app = BUNDLE(
         "NSMicrophoneUsageDescription": "VoiceType records audio when you hold ⌥ C, transcribes it locally, and pastes the text.",
         "NSAppleEventsUsageDescription": "VoiceType uses Accessibility events to press ⌘ V on your behalf.",
         "NSHumanReadableCopyright": "MIT — see LICENSE file. Copyright © 2026 Beauregard Berton.",
+        "LSApplicationCategoryType": "public.app-category.utilities",
+        "LSItemContentTypes": [],
+        "NSSupportsAutomaticTermination": False,
+        "NSSupportsSuddenTermination": False,
+        # Make sure Spotlight knows this is an app, not just a bundle
+        "CFBundlePackageType": "APPL",
     },
 )
 

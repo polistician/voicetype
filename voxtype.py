@@ -83,6 +83,8 @@ class VoxType(rumps.App):
         self.overlay_visible = False
         self._intent_history: list[dict] = []  # recent (text, action) tuples, last 20
 
+        self._ensure_spotlight_indexed()
+
     def _load_embedder(self):
         try:
             from embedder import Embedder  # lazy: pulls in sentence-transformers + torch
@@ -730,6 +732,31 @@ class VoxType(rumps.App):
         timer = threading.Timer(30.0, _fallback)
         timer.daemon = True
         timer.start()
+
+    def _ensure_spotlight_indexed(self):
+        """One-shot: register the bundled .app with LaunchServices and Spotlight.
+        Only runs in bundled mode (when running from /Applications/VoiceType.app)."""
+        import sys, os, subprocess
+        # Detect bundled mode via sys._MEIPASS or path
+        if not hasattr(sys, '_MEIPASS') and "/Applications/VoiceType.app" not in sys.executable:
+            return  # source-tree mode; skip
+        app_path = "/Applications/VoiceType.app"
+        if not os.path.isdir(app_path):
+            return
+        flag = os.path.expanduser("~/.voicetype/.spotlight_indexed")
+        if os.path.exists(flag):
+            return  # only run once
+        try:
+            subprocess.run([
+                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                "-f", app_path
+            ], capture_output=True, timeout=5)
+            subprocess.run(["mdimport", app_path], capture_output=True, timeout=5)
+            os.makedirs(os.path.dirname(flag), exist_ok=True)
+            with open(flag, "w") as f:
+                f.write("1")
+        except Exception:
+            pass  # best effort
 
     def _mark_onboarding_done(self, flag: str):
         os.makedirs(os.path.dirname(flag), exist_ok=True)
