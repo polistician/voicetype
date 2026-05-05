@@ -36,6 +36,7 @@ swiftc ~/voxtype/snippet_overlay.swift -o ~/voxtype/VoxType.app/Contents/MacOS/s
 swiftc ~/voicetype/keys_helper.swift -o ~/voicetype/keys_helper
 swiftc ~/voicetype/settings_window.swift -o ~/voicetype/settings_window
 swiftc ~/voicetype/onboarding.swift -o ~/voicetype/onboarding
+swiftc -O ~/voicetype/voicetype_launcher.swift -o ~/voicetype/voicetype_launcher
 
 # Create launchd plist for auto-start
 PLIST=~/Library/LaunchAgents/com.voxtype.app.plist

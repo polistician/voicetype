@@ -54,7 +54,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="VoiceType",
+    name="VoiceType_main",
     debug=False,
     strip=False,
     upx=False,
@@ -72,10 +72,11 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="VoiceType",
+    name="VoiceType_main",
 )
 
 import sys as _sys
+import shutil as _shutil
 # Post-COLLECT: re-sign Python.framework without hardened runtime so macOS
 # allows it to be mapped into the non-platform bootloader process. Without
 # this, dlopen fails with "Team IDs differ" on Python 3.14 (Homebrew).
@@ -95,7 +96,7 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "VoiceType",
         "CFBundleDisplayName": "VoiceType",
-        "CFBundleExecutable": "VoiceType",
+        "CFBundleExecutable": "VoiceType",   # the launcher shim
         "CFBundleIdentifier": "com.polistician.voicetype",
         "CFBundleVersion": VERSION,
         "CFBundleShortVersionString": VERSION,
@@ -106,3 +107,20 @@ app = BUNDLE(
         "NSHumanReadableCopyright": "MIT — see LICENSE file. Copyright © 2026 Beauregard Berton.",
     },
 )
+
+# Post-BUNDLE: install the AppTranslocation launcher shim.
+# PyInstaller wrote MacOS/VoiceType_main (the Python entry). We copy our
+# pre-compiled Swift launcher to MacOS/VoiceType so macOS launches it first.
+_launcher_src = os.path.join(HOME, "voicetype_launcher")
+_launcher_dst = os.path.join(_dist_app, "Contents", "MacOS", "VoiceType")
+if os.path.exists(_launcher_src):
+    _shutil.copy2(_launcher_src, _launcher_dst)
+    os.chmod(_launcher_dst, 0o755)
+    subprocess.run(
+        ["codesign", "--sign", "-", "--force", "--timestamp=none", _launcher_dst],
+        check=True,
+    )
+    print(f"[launcher] installed and signed: {_launcher_dst}")
+else:
+    print(f"[launcher] WARNING: {_launcher_src} not found — skipping launcher install")
+    print("[launcher] Run: swiftc -O voicetype_launcher.swift -o voicetype_launcher")
