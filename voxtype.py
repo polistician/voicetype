@@ -691,6 +691,46 @@ class VoxType(rumps.App):
         self.onboarding.start()
         self.onboarding.open_window()
 
+        # Belt-and-suspenders fallback: if the onboarding window never visibly
+        # appeared (e.g. activation policy race in bundled .app), the user would
+        # be stuck with no guidance.  After 30 seconds, if the flag still hasn't
+        # been written, fire a native NSAlert via osascript so they always get
+        # the manual-grant path even in the worst case.
+        import threading
+
+        def _fallback():
+            if os.path.exists(flag):
+                return  # onboarding completed normally — nothing to do
+            print("[onboarding] fallback: 30s elapsed without completion — showing NSAlert", flush=True)
+            import subprocess
+            try:
+                result = subprocess.run(
+                    [
+                        "osascript", "-e",
+                        'display alert "VoiceType is ready" message '
+                        '"Grant Microphone + Accessibility in System Settings → Privacy & Security, '
+                        'then hold ⌥ C in any text field to start dictating." '
+                        'buttons {"Open Settings", "Got it"} default button "Open Settings"',
+                    ],
+                    timeout=120,
+                    capture_output=True,
+                    text=True,
+                )
+                # osascript writes the clicked button name to stdout
+                if "Open Settings" in (result.stdout or ""):
+                    subprocess.Popen([
+                        "open",
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                    ])
+            except Exception as e:
+                print(f"[onboarding] fallback alert failed: {e}", flush=True)
+            # Mark complete so we don't nag on every subsequent launch
+            self._mark_onboarding_done(flag)
+
+        timer = threading.Timer(30.0, _fallback)
+        timer.daemon = True
+        timer.start()
+
     def _mark_onboarding_done(self, flag: str):
         os.makedirs(os.path.dirname(flag), exist_ok=True)
         with open(flag, "w") as f:

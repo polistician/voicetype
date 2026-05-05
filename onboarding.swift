@@ -624,9 +624,13 @@ class OnboardingWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError() }
 
     func bringToFront() {
+        fputs("[onboarding] bringToFront called\n", stderr)
         NSApp.activate(ignoringOtherApps: true)
+        window?.center()
+        window?.level = .floating
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        fputs("[onboarding] window shown (makeKeyAndOrderFront called)\n", stderr)
     }
 }
 
@@ -661,6 +665,7 @@ class OBAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var poller: PermPoller!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        fputs("[onboarding] applicationDidFinishLaunching — creating window\n", stderr)
         controller = OnboardingWindowController(state: state) {
             // onComplete callback — just emit; Python writes the flag
         }
@@ -668,7 +673,10 @@ class OBAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         poller = PermPoller(state: state)
         poller.start()
         startStdinReader()
+        // Bring window to front immediately — don't wait for parent's "open" JSON event,
+        // which arrives after this delegate fires and creates a race.
         controller.bringToFront()
+        fputs("[onboarding] applicationDidFinishLaunching — done\n", stderr)
     }
 
     func windowWillClose(_ notification: Notification) {
