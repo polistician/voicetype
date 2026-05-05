@@ -38,11 +38,11 @@ create-dmg \
     --window-pos 200 100 \
     --window-size 1280 800 \
     --icon-size 96 \
-    --icon "VoiceType.app" 350 340 \
-    --icon "Install.command" 640 600 \
-    --icon "INSTALL.md" 640 690 \
+    --icon "VoiceType.app" 360 340 \
+    --icon "Install.command" 360 580 \
+    --icon "INSTALL.md" 920 580 \
     --hide-extension "VoiceType.app" \
-    --app-drop-link 930 340 \
+    --app-drop-link 920 340 \
     --hdiutil-quiet \
     "$DMG" \
     "$STAGE"

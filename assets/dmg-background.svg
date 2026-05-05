@@ -6,35 +6,50 @@
       <stop offset="1" stop-color="#1a1d28"/>
     </linearGradient>
   </defs>
+
+  <!-- Background -->
   <rect width="1280" height="800" fill="url(#bg)"/>
 
-  <!-- Faint keycap watermark -->
-  <g opacity="0.18" transform="translate(560,80)">
-    <rect x="32" y="40" width="184" height="172" rx="32" fill="#4d8fdb"/>
-    <rect x="48" y="56" width="152" height="132" rx="22" fill="#7eb1e8"/>
-    <text x="128" y="142" font-size="78" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system, sans-serif" letter-spacing="-2">⌥ C</text>
-  </g>
-
   <!-- Wordmark -->
-  <text x="640" y="160" font-family="-apple-system, sans-serif" font-size="56" font-weight="700" text-anchor="middle" letter-spacing="-2">
+  <text x="640" y="120" font-family="-apple-system, sans-serif"
+        font-size="58" font-weight="700" text-anchor="middle"
+        letter-spacing="-2">
     <tspan fill="#4d8fdb">Voice</tspan><tspan fill="#e8eaf0">Type</tspan>
   </text>
+  <text x="640" y="172" font-family="-apple-system, sans-serif"
+        font-size="20" text-anchor="middle" fill="#7a8194">
+    hold ⌥ C, speak, the text appears.
+  </text>
 
-  <!-- Tagline -->
-  <text x="640" y="208" font-family="-apple-system, sans-serif" font-size="20" text-anchor="middle" fill="#7a8194">hold ⌥ C, speak, the text appears.</text>
+  <!-- STEP 1 label centered above the primary icon row (icons are at y=340) -->
+  <text x="640" y="262" font-family="-apple-system, sans-serif"
+        font-size="13" text-anchor="middle" fill="#4d8fdb"
+        letter-spacing="3" font-weight="600">
+    STEP 1 — DRAG VOICETYPE TO APPLICATIONS
+  </text>
 
-  <!-- Drag target placeholder (left) -->
-  <rect x="280" y="380" width="160" height="160" rx="18" fill="none" stroke="#4d8fdb" stroke-width="2" stroke-dasharray="6 6" opacity="0.4"/>
-  <text x="360" y="468" font-family="-apple-system, sans-serif" font-size="13" text-anchor="middle" fill="#7a8194">drag</text>
+  <!-- Drag arrow between the primary icons (VoiceType.app at x=360, Applications at x=920) -->
+  <line x1="455" y1="340" x2="825" y2="340"
+        stroke="#4d8fdb" stroke-width="3"
+        stroke-linecap="round" stroke-dasharray="10 8"/>
+  <polyline points="810,326 828,340 810,354"
+            fill="none" stroke="#4d8fdb" stroke-width="3"
+            stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Arrow -->
-  <line x1="500" y1="460" x2="780" y2="460" stroke="#4d8fdb" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 6"/>
-  <polyline points="765,448 780,460 765,472" fill="none" stroke="#4d8fdb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- STEP 2 label above the secondary icon row (icons at y=580) -->
+  <text x="640" y="500" font-family="-apple-system, sans-serif"
+        font-size="13" text-anchor="middle" fill="#7a8194"
+        letter-spacing="3" font-weight="600">
+    STEP 2 (OPTIONAL) — RUN INSTALL.COMMAND OR READ INSTALL.MD
+  </text>
 
-  <!-- Applications target placeholder (right) -->
-  <!-- (the actual Applications shortcut is dropped on top of this region by create-dmg) -->
-
-  <!-- Gatekeeper note -->
-  <text x="640" y="700" font-family="-apple-system, sans-serif" font-size="14" text-anchor="middle" fill="#7a8194">First launch: <tspan fill="#4d8fdb" font-weight="600">System Settings → Privacy &amp; Security → Open Anyway</tspan>.</text>
-  <text x="640" y="724" font-family="-apple-system, sans-serif" font-size="13" text-anchor="middle" fill="#7a8194" opacity="0.6">macOS warns once because we don't pay Apple's notarization fee. Click past it; you'll never see it again.</text>
+  <!-- Bottom: Gatekeeper instruction -->
+  <text x="640" y="730" font-family="-apple-system, sans-serif"
+        font-size="14" text-anchor="middle" fill="#e8eaf0">
+    First launch: <tspan fill="#4d8fdb" font-weight="600">System Settings → Privacy &amp; Security → Open Anyway</tspan>
+  </text>
+  <text x="640" y="754" font-family="-apple-system, sans-serif"
+        font-size="13" text-anchor="middle" fill="#7a8194" opacity="0.7">
+    macOS warns once because we don't pay Apple's notarization fee. Click past it; you'll never see it again.
+  </text>
 </svg>
