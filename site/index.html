@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceType — local voice dictation for macOS</title>
+  <meta name="description" content="A microphone in your menubar. Local Whisper underneath. Hold a key, speak, watch text appear in any focused app. macOS, Apple Silicon and Intel.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Serif+4:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Theme flash prevention: reads localStorage before first paint -->
+  <script>
+    (function(){
+      var t = localStorage.getItem('vt-theme');
+      if (t === 'light' || t === 'dark') {
+        document.documentElement.setAttribute('data-theme', t);
+      }
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════
+       §1  TOPBAR
+  ══════════════════════════════════════════════ -->
+  <header class="topbar" role="banner">
+    <a href="https://polistician.ai" class="topbar__back" aria-label="Back to polistician.ai">← polistician.ai</a>
+    <div class="topbar__wordmark" aria-label="VoiceType">
+      <span class="vt-voice">Voice</span><span>Type</span><span class="vt-voice caret">|</span>
+    </div>
+    <button id="theme-toggle" class="topbar__theme-toggle" aria-label="Toggle light/dark theme">
+      <span id="theme-label">light</span>
+    </button>
+  </header>
+
+  <main>
+
+    <!-- ══════════════════════════════════════════════
+         §2  HERO
+    ══════════════════════════════════════════════ -->
+    <section class="hero" aria-labelledby="hero-headline">
+      <div class="site-wrapper">
+        <p class="hero__meta">macOS · Apple Silicon &amp; Intel · <span data-latest-version>v0.9.1</span> · ad-hoc signed</p>
+        <div class="hero__wordmark" aria-hidden="true">
+          <span class="vt-voice">Voice</span><span>Type</span><span class="vt-voice caret">|</span>
+        </div>
+        <h1 id="hero-headline" class="hero__headline">hold ⌥ C, speak, the text appears.</h1>
+        <p class="hero__lede">
+          A microphone in the menubar. Whisper.cpp runs locally on the laptop. I press a key, I talk, the words paste into whichever app I was last typing in — Terminal, Slack, Apple Mail, the address bar of this browser. The audio never leaves the machine.
+        </p>
+        <div class="hero__ctas">
+          <a href="https://github.com/polistician/voicetype/releases/latest/download/VoiceType.dmg"
+             class="btn-primary"
+             aria-label="Download VoiceType for macOS">
+            ↓ Download for macOS
+          </a>
+          <a href="https://github.com/polistician/voicetype"
+             class="btn-outline"
+             target="_blank"
+             rel="noopener noreferrer"
+             aria-label="View VoiceType source on GitHub">
+            Source on GitHub
+          </a>
+        </div>
+        <p class="hero__gatekeeper">macOS will warn you once. Right-click → Open. That's the price of a tool that doesn't phone home.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §3  ZERO-FRICTION CALLOUT
+    ══════════════════════════════════════════════ -->
+    <section class="callout" aria-labelledby="callout-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— the whole point —</p>
+        <h2 id="callout-headline" class="callout__headline">Capture an idea the second it arrives.</h2>
+        <div class="callout__body">
+          <p>Think out loud without losing the thread. Speak however you actually speak — half-formed, code-mixed, in your own jargon — and VoiceType learns your vocabulary as you go.</p>
+          <p>Every other dictation tool first asks you to find the app, click record, then talk. VoiceType skips both. Hold ⌥ C from wherever you already are. You're already recording.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §4  SECTION 1: HOW IT WORKS
+    ══════════════════════════════════════════════ -->
+    <section class="how-it-works" aria-labelledby="how-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 1 —</p>
+        <h2 id="how-headline" class="section-title">How it works</h2>
+
+        <div class="how-flow" role="list" aria-label="Three steps: Hold, Talk, Paste">
+
+          <div class="how-step" role="listitem">
+            <span class="how-step__key" aria-label="Option C keyboard shortcut">⌥ C</span>
+            <span class="how-step__label">Hold</span>
+            <span class="how-step__caption">Anywhere. Any app.<br>Menubar mic turns red.</span>
+          </div>
+
+          <div class="how-arrow" aria-hidden="true">→</div>
+
+          <div class="how-step" role="listitem">
+            <span class="how-step__bars" aria-label="Audio waveform">▮▮▮▮▮</span>
+            <span class="how-step__label">Talk</span>
+            <span class="how-step__caption">whisper.cpp transcribes<br>locally. No network.</span>
+          </div>
+
+          <div class="how-arrow" aria-hidden="true">→</div>
+
+          <div class="how-step" role="listitem">
+            <span class="how-step__key" aria-label="Command V keyboard shortcut">⌘ V</span>
+            <span class="how-step__label">Paste</span>
+            <span class="how-step__caption">Into whichever app<br>you were just in.</span>
+          </div>
+
+        </div>
+
+        <p class="how-caption">VoiceType writes the transcription to your clipboard and presses ⌘ V on your behalf. Anywhere ⌘ V works, VoiceType works.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §5  SECTION 2: THREE THINGS VOICETYPE DOES
+    ══════════════════════════════════════════════ -->
+    <section class="features" aria-labelledby="features-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 2 —</p>
+        <h2 id="features-headline" class="section-title">Three things VoiceType does</h2>
+
+        <div class="feature-cards">
+
+          <article class="feature-card">
+            <p class="feature-card__tag">Dictate</p>
+            <h3 class="feature-card__title">Voice to text in any app</h3>
+            <p class="feature-card__body">Hold ⌥ C, talk, release. Whatever you said becomes typed text in whichever app you were last working in. Slack message, Terminal command, browser address bar — anywhere a cursor blinks.</p>
+          </article>
+
+          <article class="feature-card">
+            <p class="feature-card__tag">Steer</p>
+            <h3 class="feature-card__title">Voice as a command, not just text</h3>
+            <p class="feature-card__body">Configure your own voice commands. Say <em>help</em> and the settings overlay opens. Say a saved phrase name and the saved text pastes itself. The model picks the action that fits what you said.</p>
+          </article>
+
+          <article class="feature-card">
+            <p class="feature-card__tag">Translate</p>
+            <h3 class="feature-card__title">Speak any language, paste English</h3>
+            <p class="feature-card__body">Optional. Drop a DeepL API key into settings and VoiceType translates as it pastes. Speak German into Slack, English text appears. DeepL free tier covers ~500k characters / month.</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §6  SECTION 3: EACH FEATURE, DOING THE THING
+    ══════════════════════════════════════════════ -->
+    <section class="in-action" aria-labelledby="action-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 3 —</p>
+        <h2 id="action-headline" class="section-title">Each feature, doing the thing</h2>
+        <p class="in-action__subtitle">Vibecoding with Claude · steering an overlay open · translating German into English on the fly.</p>
+
+        <!-- ── Mock 1: DICTATE — Vibecoding ── -->
+        <div class="mock-block">
+          <p class="mock-block__label">Dictate — vibecoding</p>
+
+          <div class="mock-window" role="img" aria-label="Cursor IDE with Claude Code chat panel open. A 14-second dictated prompt is mid-sentence in the chat input.">
+            <!-- macOS menubar -->
+            <div class="mock-menubar">
+              <div class="mock-menubar__left">
+                <span class="mock-menubar__app">Cursor</span>
+                <span class="mock-menubar__item">File</span>
+                <span class="mock-menubar__item">Edit</span>
+              </div>
+              <div class="mock-menubar__right">
+                <span class="mock-menubar__mic" aria-label="Microphone active">🎤</span>
+                <span class="mock-menubar__clock">9:41 AM</span>
+              </div>
+            </div>
+            <!-- window chrome -->
+            <div class="mock-titlebar">
+              <span class="mock-traffic mock-traffic--close" aria-hidden="true"></span>
+              <span class="mock-traffic mock-traffic--min"   aria-hidden="true"></span>
+              <span class="mock-traffic mock-traffic--max"   aria-hidden="true"></span>
+              <span class="mock-titlebar__name">checkout.tsx — payments</span>
+            </div>
+            <!-- IDE split pane -->
+            <div class="mock-ide">
+              <div class="mock-ide__editor" aria-hidden="true">
+                <div><span class="syn-keyword">async function</span> <span class="syn-fn">handleSubmit</span>() {</div>
+                <div style="padding-left:1rem"><span class="syn-ctrl">if</span> (!isCardValid) <span class="syn-ctrl">return</span>;</div>
+                <div style="padding-left:1rem"><span class="syn-var">const</span> res = <span class="syn-ctrl">await</span> stripe.charge(amount);</div>
+                <div style="padding-left:1rem"><span class="syn-ctrl">if</span> (!res.ok) <span class="syn-ctrl">throw</span> ...</div>
+                <div>}</div>
+              </div>
+              <div class="mock-ide__chat" aria-hidden="true">
+                <div class="mock-ide__chat-label">Chat — claude-sonnet-4.6</div>
+                <div class="mock-ide__prompt">
+                  stripe sometimes returns a soft-decline that's not really a hard fail — can we add a retry path with exponential backoff but only for those specific decline codes, and surface the others as immediate user-facing errors, oh and remember we don't want to retry on rate-limit codes because then we hit the<span style="background:var(--blue);color:#fff;padding:0 3px;margin-left:1px">|</span>
+                </div>
+                <div class="mock-ide__timer">⌥ C ▮▮▮▮▮ 14s</div>
+              </div>
+            </div>
+          </div>
+
+          <p class="mock-block__caption">
+            A 14-second thinking-out-loud prompt to Claude Code. Half-formed reasoning, mid-sentence pivots, project-specific terms — VoiceType doesn't care. By the time you stop talking, the prompt is already in the chat box.
+          </p>
+        </div>
+
+        <!-- ── Mock 2: STEER — say "help", overlay opens ── -->
+        <div class="mock-block">
+          <p class="mock-block__label">Steer — say "help", the overlay opens</p>
+
+          <div class="mock-window" role="img" aria-label="macOS desktop with VoiceType overlay floating above, showing help results and saved phrases">
+            <!-- macOS menubar -->
+            <div class="mock-menubar">
+              <div class="mock-menubar__left">
+                <span class="mock-menubar__app">Cursor</span>
+              </div>
+              <div class="mock-menubar__right">
+                <span class="mock-menubar__mic" aria-label="Microphone active">🎤</span>
+                <span class="mock-menubar__clock">9:41 AM</span>
+              </div>
+            </div>
+
+            <!-- desktop with blur + overlay -->
+            <div class="mock-desktop">
+              <div class="mock-desktop__blur" aria-hidden="true"></div>
+
+              <div class="vt-overlay" aria-hidden="true">
+                <!-- search bar -->
+                <div class="vt-overlay__search">
+                  <span class="vt-overlay__icon">🔍</span>
+                  <span class="vt-overlay__query">help</span>
+                  <span class="vt-overlay__cursor">|</span>
+                  <span class="vt-overlay__close">⎋ to close</span>
+                </div>
+
+                <!-- highlighted result -->
+                <div class="vt-overlay__item vt-overlay__item--active">
+                  <span class="vt-overlay__item-name">Help</span>
+                  <span class="vt-overlay__item-desc">— show keyboard shortcuts and trigger words</span>
+                  <span class="vt-overlay__item-key">⏎ open</span>
+                </div>
+
+                <!-- saved phrases -->
+                <div class="vt-overlay__item vt-overlay__item--dim">
+                  <span>Help me write a cold email</span>
+                  <span class="vt-overlay__item-desc">— saved phrase</span>
+                </div>
+                <div class="vt-overlay__item vt-overlay__item--dim">
+                  <span>Help with TypeScript types</span>
+                  <span class="vt-overlay__item-desc">— saved phrase</span>
+                </div>
+
+                <div class="vt-overlay__footer">
+                  <span>3 matches · ranked by recent use</span>
+                  <span>↑↓ navigate · ⏎ paste · ⌘N new</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="mock-block__caption">
+            Hold ⌥ C, say <em>"help"</em>, release. The intent router opens the help overlay floating above your work — without leaving the keyboard or losing focus on what you were doing.
+          </p>
+        </div>
+
+        <!-- ── Mock 3: TRANSLATE — German voice → English text ── -->
+        <div class="mock-block">
+          <p class="mock-block__label">Translate — speak German, paste English</p>
+
+          <div class="mock-translate" role="img" aria-label="VoiceType recording panel showing German speech on the left, Slack message box with English translation on the right">
+
+            <!-- Recording panel -->
+            <div class="mock-recording" aria-hidden="true">
+              <div class="mock-recording__status">
+                <span>🎤</span>
+                <span>recording — DE → EN</span>
+              </div>
+              <div class="mock-recording__waveform" aria-hidden="true">
+                <span class="mock-recording__bar" style="height:6px"></span>
+                <span class="mock-recording__bar" style="height:11px"></span>
+                <span class="mock-recording__bar" style="height:8px"></span>
+                <span class="mock-recording__bar" style="height:14px"></span>
+                <span class="mock-recording__bar" style="height:9px"></span>
+                <span class="mock-recording__bar" style="height:5px"></span>
+                <span class="mock-recording__bar" style="height:12px"></span>
+                <span class="mock-recording__bar" style="height:7px"></span>
+                <span class="mock-recording__bar" style="height:10px"></span>
+              </div>
+              <div class="mock-recording__speech">"können wir den termin auf donnerstag verschieben? donnerstag passt mir besser."</div>
+              <div class="mock-recording__meta">DeepL → EN · 80 ms</div>
+            </div>
+
+            <div class="mock-translate__arrow" aria-hidden="true">→</div>
+
+            <!-- Slack window -->
+            <div class="mock-slack" aria-hidden="true">
+              <div class="mock-slack__menubar">
+                <span class="mock-slack__menubar-app">Slack</span>
+                <span class="mock-menubar__mic">🎤</span>
+              </div>
+              <div class="mock-slack__header">Maya Patel</div>
+              <div class="mock-slack__body">
+                <div class="mock-slack__input">
+                  Can we move the meeting to Thursday? Thursday works better for me.<span class="mock-slack__cursor">|</span>
+                </div>
+                <div class="mock-slack__toolbar">
+                  <span>Aa</span>
+                  <span>📎</span>
+                  <span class="mock-slack__send">Send</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <p class="mock-block__caption">
+            Speak in your native language. The English (or whatever target you set) lands in the chat box.
+          </p>
+        </div>
+
+        <p class="mock-note">Mockups are HTML stand-ins. Real screenshots from your laptop replace these on the live site.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §7  SECTION 4: WHY THIS EXISTS
+    ══════════════════════════════════════════════ -->
+    <section class="vision" aria-labelledby="vision-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 4 —</p>
+        <h2 id="vision-headline" class="section-title">Why this exists</h2>
+        <div class="vision__body">
+          <p>I built VoiceType because Claude Code in the Terminal had no voice input, and every dictation tool I tried sent my audio to someone else's server. Now it's the program I touch most every day.</p>
+          <p>Tools like Wispr Flow charge a subscription for what should be a local feature. Whisper runs on a laptop. Nothing has to leave the machine.</p>
+          <p>When you talk to an AI agent, typing isn't the most efficient way to communicate any more — the agent can reason about what you meant. Voice doesn't have to be precise commands, it can be loose intent. The tool just has to learn <em>your</em> vocabulary, <em>your</em> projects, <em>your</em> context.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §8  SECTION 5: INSTALL IN 30 SECONDS
+    ══════════════════════════════════════════════ -->
+    <section class="install" aria-labelledby="install-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 5 —</p>
+        <h2 id="install-headline" class="section-title">Install in 30 seconds</h2>
+
+        <ol class="install-steps" aria-label="Installation steps">
+          <li class="install-step">
+            <span class="install-step__num" aria-hidden="true">1</span>
+            <span class="install-step__label">Download .dmg</span>
+            <span class="install-step__sub">~250 MB</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step__num" aria-hidden="true">2</span>
+            <span class="install-step__label">Drag to Applications</span>
+            <span class="install-step__sub">DMG opens, drag the icon</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step__num" aria-hidden="true">3</span>
+            <span class="install-step__label">Right-click → Open</span>
+            <span class="install-step__sub">One-time Gatekeeper bypass</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step__num" aria-hidden="true">4</span>
+            <span class="install-step__label">Grant 2 permissions</span>
+            <span class="install-step__sub">Microphone + Accessibility</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step__num" aria-hidden="true">5</span>
+            <span class="install-step__label">Hold ⌥ C</span>
+            <span class="install-step__sub">Start talking</span>
+          </li>
+        </ol>
+
+        <div class="install__cta">
+          <a href="https://github.com/polistician/voicetype/releases/latest/download/VoiceType.dmg"
+             class="install__cta-btn"
+             aria-label="Download VoiceType for macOS">
+            ↓ Download VoiceType
+          </a>
+          <p class="install__meta">
+            <span data-latest-version>v0.9.1</span> · macOS 13+ · 250 MB · ad-hoc signed · github.com/polistician/voicetype
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════════
+       §9  FOOTER: LOCAL-FIRST PROMISE
+  ══════════════════════════════════════════════ -->
+  <footer class="footer" role="contentinfo">
+    <div class="site-wrapper">
+
+      <div class="footer__grid">
+
+        <!-- What stays -->
+        <div>
+          <p class="footer__col-title">What stays on your laptop</p>
+          <ul class="footer__list" aria-label="Data that stays on device">
+            <li>Audio recordings (never written to disk)</li>
+            <li>Transcripts and dictation history</li>
+            <li>Your vocabulary and learned terms</li>
+            <li>Saved phrases and snippets</li>
+            <li>Correction history</li>
+            <li>Usage stats and decision log</li>
+          </ul>
+        </div>
+
+        <!-- What leaves -->
+        <div>
+          <p class="footer__col-title">What leaves your laptop</p>
+          <ul class="footer__list footer__list--red" aria-label="Data that may leave device">
+            <li>DeepL translation requests — only if you add a key and only the text being translated</li>
+          </ul>
+          <p class="footer__opt-note">DeepL is opt-in. No key set → nothing leaves. Audio never leaves regardless of any setting.</p>
+        </div>
+
+      </div>
+
+      <hr class="footer__divider">
+
+      <div class="footer__bottom">
+        <a href="https://github.com/polistician/voicetype/blob/main/LICENSE"
+           target="_blank"
+           rel="noopener noreferrer">MIT License</a>
+        <a href="https://github.com/polistician/voicetype"
+           target="_blank"
+           rel="noopener noreferrer">GitHub</a>
+        <span style="margin-left:auto;opacity:0.6;font-size:0.68rem">© Beauregard Berton</span>
+      </div>
+
+      <p class="footer__sha">
+        DMG SHA256: <code data-latest-sha256>(loading)</code>
+      </p>
+
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
