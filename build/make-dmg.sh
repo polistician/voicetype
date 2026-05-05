@@ -25,6 +25,7 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/VoiceType.app"
 cp "$INSTALL_CMD" "$STAGE/Install.command"
 chmod +x "$STAGE/Install.command"
+cp "$REPO/INSTALL.md" "$STAGE/INSTALL.md"
 
 # Remove old DMG
 rm -f "$DMG" "$DMG.sha256"
@@ -36,11 +37,12 @@ create-dmg \
     --background "$BG" \
     --window-pos 200 100 \
     --window-size 1280 800 \
-    --icon-size 128 \
-    --icon "VoiceType.app" 360 480 \
-    --icon "Install.command" 920 660 \
+    --icon-size 96 \
+    --icon "VoiceType.app" 350 340 \
+    --icon "Install.command" 640 600 \
+    --icon "INSTALL.md" 640 690 \
     --hide-extension "VoiceType.app" \
-    --app-drop-link 920 480 \
+    --app-drop-link 930 340 \
     --hdiutil-quiet \
     "$DMG" \
     "$STAGE"
