@@ -181,6 +181,11 @@ func emit(_ obj: [String: Any]) {
     FileHandle.standardOutput.write("\n".data(using: .utf8)!)
 }
 
+// MARK: - Brand constants
+
+private let brandBackground = Color(red: 0.10, green: 0.11, blue: 0.16, opacity: 0.97)
+private let brandAccent = Color(red: 0.302, green: 0.561, blue: 0.859)
+
 // MARK: - Overlay UI
 
 struct OverlayView: View {
@@ -247,21 +252,34 @@ struct OverlayView: View {
         }
         .padding(14)
         .frame(width: 540, height: 420)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
         .onChange(of: state.query) { _, newValue in
             localQuery = newValue
         }
     }
 
     private var searchField: some View {
-        TextField("Search snippets…", text: $localQuery, onCommit: {
-            if let id = filtered.first?.id {
-                emit(["type": "PASTE", "id": id])
-                NSApp.windows.first?.orderOut(nil)
-            }
-        })
-        .textFieldStyle(PlainTextFieldStyle())
-        .font(.system(size: 14))
+        HStack(spacing: 8) {
+            TextField("Search snippets…", text: $localQuery, onCommit: {
+                if let id = filtered.first?.id {
+                    emit(["type": "PASTE", "id": id])
+                    NSApp.windows.first?.orderOut(nil)
+                }
+            })
+            .textFieldStyle(PlainTextFieldStyle())
+            .font(.system(size: 14))
+
+            // Brand keycap: ⌥ C
+            Text("⌥ C")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(brandAccent)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(brandAccent, lineWidth: 1)
+                )
+        }
         .padding(10)
         .background(Color.black.opacity(0.25))
         .cornerRadius(6)
@@ -285,7 +303,7 @@ struct OverlayView: View {
             }
             .font(.system(size: 11))
             .padding(8)
-            .background(Color.blue.opacity(0.15))
+            .background(brandAccent.opacity(0.15))
             .cornerRadius(6)
         }
     }
@@ -354,7 +372,7 @@ struct EditorView: View {
         }
         .padding(14)
         .frame(width: 500, height: 360)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
     }
 }
 
@@ -376,7 +394,7 @@ struct SnippetRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(selected ? Color.accentColor.opacity(0.3) : Color.clear)
+        .background(selected ? brandAccent.opacity(0.15) : Color.clear)
         .cornerRadius(4)
     }
 }
@@ -402,7 +420,7 @@ struct PickerView: View {
         }
         .padding(12)
         .frame(width: 340)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
     }
 }
 
@@ -411,7 +429,7 @@ struct HelpView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("VoxType Help")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.custom("Space Grotesk", size: 16).weight(.semibold))
 
                 Group {
                     Text("Global hotkeys").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
@@ -471,7 +489,7 @@ struct HelpView: View {
             .padding(16)
         }
         .frame(width: 540, height: 560)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
     }
 
     private func helpRow(_ key: String, _ desc: String) -> some View {
@@ -519,7 +537,7 @@ struct StatsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("VoxType Stats")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.custom("Space Grotesk", size: 16).weight(.semibold))
 
                 savesHeader
                 Divider()
@@ -537,7 +555,7 @@ struct StatsView: View {
             .padding(16)
         }
         .frame(width: 640, height: 580)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
     }
 
     private var savesHeader: some View {
@@ -775,7 +793,7 @@ struct StatsView: View {
         switch action {
         case "dictate": return .primary
         case "paste_snippet": return .green
-        case "open_help", "open_overview", "open_fix", "open_stats", "save_snippet": return .blue
+        case "open_help", "open_overview", "open_fix", "open_stats", "save_snippet": return brandAccent
         case "skip_short", "skip_empty": return .orange
         default: return .secondary
         }
@@ -829,7 +847,7 @@ struct FixView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Fix")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.custom("Space Grotesk", size: 16).weight(.semibold))
 
             if !state.recentIntents.isEmpty {
                 Text("Recent transcriptions — click ↪ to correct")
@@ -868,7 +886,7 @@ struct FixView: View {
         }
         .padding(16)
         .frame(width: 520)
-        .background(VisualEffectView(material: .hudWindow, blending: .behindWindow))
+        .background(brandBackground)
     }
 
     private func recentRow(_ r: RecentIntent) -> some View {
