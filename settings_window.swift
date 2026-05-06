@@ -16,6 +16,7 @@ struct InMessage: Codable {
     var error: String?
     var key: String?
     var boolValue: Bool?
+    var value: String?
 }
 
 struct OutEvent: Codable {
@@ -65,6 +66,14 @@ class SettingsState: ObservableObject {
         case "setting_status":
             if msg.key == "auto_paste", let v = msg.boolValue {
                 self.autoPaste = v
+            }
+        case "key_value":
+            if msg.account == "deepl", let v = msg.value {
+                self.deeplKey = v
+                self.deeplPresent = !v.isEmpty
+                if self.deeplStatus.isEmpty || self.deeplStatus == "not set" {
+                    self.deeplStatus = self.deeplPresent ? "saved" : "not set"
+                }
             }
         default:
             break
@@ -315,7 +324,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             controller.bringToFront()
         case "close":
             controller.window?.orderOut(nil)
-        case "key_status", "verify_result", "setting_status":
+        case "key_status", "verify_result", "setting_status", "key_value":
             state.handle(msg)
         default:
             break

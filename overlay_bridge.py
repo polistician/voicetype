@@ -195,6 +195,22 @@ class SettingsBridge:
         except Exception:
             present = False
         self._send({"type": "key_status", "account": account, "present": present})
+        self._emit_key_value(account)
+
+    def _emit_key_value(self, account: str) -> None:
+        """On window open, send the saved key value (or empty) so the field pre-populates."""
+        try:
+            from keys import KeyStore, KeyNotFound
+            store = KeyStore()
+            try:
+                value = store.get(account)
+            except KeyNotFound:
+                value = ""
+            self._send({"type": "key_value", "account": account, "value": value})
+        except Exception:
+            # Best effort — if Keychain access fails, just don't populate.
+            # Don't log the value or raise. Window stays empty.
+            pass
 
     def _on_verify_key(self, account: str, value: str) -> None:
         if account == "deepl":
