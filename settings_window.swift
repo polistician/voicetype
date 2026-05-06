@@ -243,11 +243,53 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let state = SettingsState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         controller = SettingsWindowController(state: state)
         controller.window?.delegate = self
         // Ask Python for current key status
         emit(OutEvent(type: "refresh_status", account: "deepl"))
         startStdinReader()
+    }
+
+    private func installEditMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu (required for menubar to render properly)
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "Quit",
+                                   action: #selector(NSApplication.terminate(_:)),
+                                   keyEquivalent: "q"))
+        appMenuItem.submenu = appMenu
+
+        // Edit menu — what we actually need
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo",
+                         action: Selector(("undo:")),
+                         keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo",
+                         action: Selector(("redo:")),
+                         keyEquivalent: "Z")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut",
+                         action: #selector(NSText.cut(_:)),
+                         keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy",
+                         action: #selector(NSText.copy(_:)),
+                         keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste",
+                         action: #selector(NSText.paste(_:)),
+                         keyEquivalent: "v")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Select All",
+                         action: #selector(NSText.selectAll(_:)),
+                         keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
     }
 
     func windowWillClose(_ notification: Notification) {
