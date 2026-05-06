@@ -850,14 +850,53 @@ class VoxType(rumps.App):
         threading.Thread(target=_run, daemon=True).start()
 
     def _read_current_version(self) -> str:
-        """Resolve VERSION from source-tree, _MEIPASS, or app bundle."""
-        import sys
-        paths = [
+        """Resolve the running app's version.
+
+        BUNDLED: read CFBundleShortVersionString from the .app's Info.plist —
+        canonical truth, can never disagree with what macOS shows. We walk up
+        from sys._MEIPASS (which is .../VoiceType.app/Contents/Resources/...)
+        to find Contents/Info.plist.
+
+        SOURCE-TREE: read ~/voicetype/VERSION as the dev-mode source of truth.
+        """
+        import sys, subprocess
+        # BUNDLED mode — Info.plist is canonical
+        if hasattr(sys, "_MEIPASS"):
+            mp = sys._MEIPASS
+            # Walk up to find Contents/Info.plist
+            head = mp
+            for _ in range(6):  # bounded — Resources/{...}.app/Contents
+                contents = os.path.join(head, "Info.plist")
+                if os.path.isfile(contents) and "Contents" in head:
+                    try:
+                        result = subprocess.run(
+                            ["plutil", "-extract", "CFBundleShortVersionString", "raw", contents],
+                            capture_output=True, text=True, timeout=2
+                        )
+                        if result.returncode == 0:
+                            v = result.stdout.strip()
+                            if v:
+                                return v
+                    except Exception:
+                        pass
+                    break
+                head = os.path.dirname(head)
+                if head in ("/", ""):
+                    break
+            # Fallback: bundled VERSION file
+            try:
+                with open(os.path.join(sys._MEIPASS, "VERSION")) as f:
+                    v = f.read().strip()
+                    if v:
+                        return v
+            except Exception:
+                pass
+
+        # SOURCE-TREE mode
+        for p in (
             os.path.expanduser("~/voicetype/VERSION"),
-            os.path.join(getattr(sys, "_MEIPASS", ""), "VERSION"),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"),
-        ]
-        for p in paths:
+        ):
             try:
                 with open(p) as f:
                     v = f.read().strip()
