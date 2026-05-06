@@ -827,18 +827,27 @@ class VoxType(rumps.App):
                 )
                 return
 
+            # Save current title to restore on error
+            original_title = self.title or "\U0001f3a4"
+
             def _on_progress(msg: str):
                 print(f"[updater] {msg}", flush=True)
+                short = msg if len(msg) <= 28 else msg[:27] + "…"
+                self.title = f"⏳ {short}"
+                self._update_status(msg)
 
             try:
                 new_v = perform_update(on_progress=_on_progress)
             except UpdateError as e:
+                self.title = original_title
                 self._show_alert("Update failed", str(e), buttons=["OK"])
                 return
             except Exception as e:
+                self.title = original_title
                 self._show_alert("Update failed", f"Unexpected error: {e}", buttons=["OK"])
                 return
 
+            self.title = "✅"
             clicked = self._show_alert(
                 f"Updated to v{new_v}",
                 "VoiceType has been updated. Click OK to relaunch.\n\nNote: macOS may ask you to re-grant Microphone + Accessibility because the new binary has a different signature.",
@@ -846,6 +855,8 @@ class VoxType(rumps.App):
             )
             if "Relaunch" in clicked:
                 relaunch()
+            # If user clicks Later, restore the title
+            self.title = original_title
 
         threading.Thread(target=_run, daemon=True).start()
 

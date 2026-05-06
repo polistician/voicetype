@@ -85,9 +85,20 @@ def perform_update(on_progress: Optional[Callable[[str], None]] = None) -> str:
     sha_path = os.path.join(TMP_ROOT, "VoiceType.dmg.sha256")
 
     try:
-        # 1. Download DMG
-        status("Downloading VoiceType.dmg…")
-        _download(DMG_URL, dmg_path)
+        # 1. Download DMG with per-percent progress
+        status("Downloading 0%…")
+        last_pct: list[int] = [-1]  # mutable cell for nonlocal-free closure
+
+        def _dl_progress(downloaded: int, total: int) -> None:
+            if total:
+                pct = int(100 * downloaded / total)
+                if pct != last_pct[0]:
+                    last_pct[0] = pct
+                    mb_done = downloaded / (1024 * 1024)
+                    mb_total = total / (1024 * 1024)
+                    status(f"Downloading {pct}% ({mb_done:.0f}/{mb_total:.0f} MB)")
+
+        _download(DMG_URL, dmg_path, on_progress=_dl_progress)
 
         # 2. Download SHA sidecar
         status("Downloading checksum…")
@@ -102,7 +113,7 @@ def perform_update(on_progress: Optional[Callable[[str], None]] = None) -> str:
             raise UpdateError(f"SHA256 mismatch (downloaded {actual[:12]}…, expected {published[:12]}…). Refusing to install a corrupted DMG.")
 
         # 4. Mount
-        status("Mounting DMG…")
+        status("Mounting…")
         _detach_mount()
         proc = _run(["hdiutil", "attach", "-nobrowse", "-noverify", "-quiet", dmg_path])
         if proc.returncode != 0:
@@ -119,7 +130,7 @@ def perform_update(on_progress: Optional[Callable[[str], None]] = None) -> str:
                 raise UpdateError("VoiceType.app not found in mounted DMG.")
 
         # 6. Replace /Applications/VoiceType.app
-        status("Installing to /Applications…")
+        status("Installing…")
         if os.path.exists(APP_PATH):
             shutil.rmtree(APP_PATH, ignore_errors=False)
         shutil.copytree(candidate, APP_PATH, symlinks=True)
@@ -137,10 +148,12 @@ def perform_update(on_progress: Optional[Callable[[str], None]] = None) -> str:
         except Exception:
             pass
 
+        status(f"Updated to v{new_version}")
         return new_version
 
     finally:
         # Always detach + cleanup tmp
+        status("Cleaning up…")
         _detach_mount()
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
 

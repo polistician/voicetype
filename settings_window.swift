@@ -322,6 +322,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch msg.type {
         case "open":
             controller.bringToFront()
+            // Re-fetch saved keys + settings whenever window opens, not just on first launch.
+            emit(OutEvent(type: "refresh_status", account: "deepl"))
         case "close":
             controller.window?.orderOut(nil)
         case "key_status", "verify_result", "setting_status", "key_value":
