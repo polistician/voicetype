@@ -36,9 +36,9 @@ create-dmg \
     --window-pos 200 100 \
     --window-size 800 480 \
     --icon-size 128 \
-    --icon "VoiceType.app" 220 230 \
+    --icon "VoiceType.app" 220 180 \
     --hide-extension "VoiceType.app" \
-    --app-drop-link 580 230 \
+    --app-drop-link 580 180 \
     --hdiutil-quiet \
     "$DMG" \
     "$STAGE"

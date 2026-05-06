@@ -5,7 +5,6 @@
       <stop offset="0" stop-color="#0d0e12"/>
       <stop offset="1" stop-color="#1a1d28"/>
     </linearGradient>
-    <!-- Pill background for the instruction band — high-contrast guaranteed visibility -->
     <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#4d8fdb" stop-opacity="0.18"/>
       <stop offset="1" stop-color="#4d8fdb" stop-opacity="0.06"/>
@@ -14,45 +13,53 @@
 
   <rect width="800" height="480" fill="url(#bg)"/>
 
-  <!-- ===== TOP: brand ===== -->
-  <text x="400" y="62" font-family="-apple-system, sans-serif"
-        font-size="32" font-weight="700" text-anchor="middle"
-        letter-spacing="-1.2">
+  <!-- ===== TOP: brand (compact, y=40-72) ===== -->
+  <text x="400" y="50" font-family="-apple-system, sans-serif"
+        font-size="28" font-weight="700" text-anchor="middle"
+        letter-spacing="-1">
     <tspan fill="#7eb1e8">Voice</tspan><tspan fill="#ffffff">Type</tspan>
   </text>
-  <text x="400" y="88" font-family="-apple-system, sans-serif"
-        font-size="13" text-anchor="middle" fill="#a8b0c0">
+  <text x="400" y="74" font-family="-apple-system, sans-serif"
+        font-size="12" text-anchor="middle" fill="#a8b0c0">
     hold ⌥ C, speak, the text appears.
   </text>
 
-  <!-- ===== MIDDLE: drag visualization (icons placed by create-dmg at y=230) ===== -->
-  <line x1="310" y1="230" x2="490" y2="230"
+  <!-- ===== MIDDLE: icons placed by create-dmg at y=180. Arrow between them. ===== -->
+  <line x1="310" y1="180" x2="490" y2="180"
         stroke="#7eb1e8" stroke-width="3"
         stroke-linecap="round" stroke-dasharray="9 7"/>
-  <polyline points="478,218 492,230 478,242"
+  <polyline points="478,168 492,180 478,192"
             fill="none" stroke="#7eb1e8" stroke-width="3"
             stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- ===== INSTRUCTION BAND: clearly visible, high contrast ===== -->
-  <rect x="80" y="320" width="640" height="60" rx="12" fill="url(#band)"
-        stroke="#4d8fdb" stroke-width="1" stroke-opacity="0.4"/>
-  <text x="400" y="345" font-family="-apple-system, sans-serif"
-        font-size="15" font-weight="700" text-anchor="middle"
-        fill="#ffffff" letter-spacing="0.5">
-    Step 1 — Drag VoiceType into Applications
-  </text>
-  <text x="400" y="368" font-family="-apple-system, sans-serif"
-        font-size="12" text-anchor="middle" fill="#c8d0e0">
-    Step 2 — Open VoiceType from /Applications. macOS warns once.
+  <!-- ===== INSTRUCTION CARD: y=270 to y=410 — well within visible zone ===== -->
+  <rect x="70" y="270" width="660" height="140" rx="14" fill="url(#band)"
+        stroke="#4d8fdb" stroke-width="1" stroke-opacity="0.5"/>
+
+  <!-- Step 1 -->
+  <circle cx="100" cy="305" r="13" fill="#4d8fdb"/>
+  <text x="100" y="310" font-family="-apple-system, sans-serif"
+        font-size="13" font-weight="700" text-anchor="middle" fill="#ffffff">1</text>
+  <text x="125" y="310" font-family="-apple-system, sans-serif"
+        font-size="14" font-weight="600" fill="#ffffff">
+    Drag VoiceType into Applications
   </text>
 
-  <!-- ===== BOTTOM: Gatekeeper bypass detail ===== -->
-  <text x="400" y="416" font-family="-apple-system, sans-serif"
-        font-size="13" text-anchor="middle" fill="#ffffff" font-weight="600">
-    System Settings → Privacy &amp; Security → Open Anyway
+  <!-- Step 2 -->
+  <circle cx="100" cy="345" r="13" fill="#4d8fdb"/>
+  <text x="100" y="350" font-family="-apple-system, sans-serif"
+        font-size="13" font-weight="700" text-anchor="middle" fill="#ffffff">2</text>
+  <text x="125" y="350" font-family="-apple-system, sans-serif"
+        font-size="14" font-weight="600" fill="#ffffff">
+    Open VoiceType from /Applications
   </text>
-  <text x="400" y="438" font-family="-apple-system, sans-serif"
-        font-size="11" text-anchor="middle" fill="#a8b0c0">
-    Click past the warning once. You'll never see it again.
+
+  <!-- Step 3 -->
+  <circle cx="100" cy="385" r="13" fill="#4d8fdb"/>
+  <text x="100" y="390" font-family="-apple-system, sans-serif"
+        font-size="13" font-weight="700" text-anchor="middle" fill="#ffffff">3</text>
+  <text x="125" y="390" font-family="-apple-system, sans-serif"
+        font-size="14" font-weight="600" fill="#ffffff">
+    macOS warns? <tspan fill="#7eb1e8">System Settings → Privacy &amp; Security → Open Anyway</tspan>
   </text>
 </svg>
