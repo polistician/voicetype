@@ -37,6 +37,10 @@ a = Analysis(
         "rumps", "sounddevice",
         "rapidfuzz", "rapidfuzz.fuzz",
         "numpy",
+        # Lazy imports — these are imported inside method bodies so PyInstaller's
+        # static analyzer misses them. Forcing inclusion here.
+        "updater",  # voxtype.py: _perform_update_async -> from updater import ...
+        "keys",     # translator.py: _get_key -> from keys import KeyStore
     ],
     hookspath=[],
     runtime_hooks=[],
