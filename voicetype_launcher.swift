@@ -62,10 +62,11 @@ func openInstalledApp() -> Bool {
     }
 }
 
-func execMain(argv: [String]) -> Never {
+func spawnMainAndExit(argv: [String]) -> Never {
     let myPath = selfPath()
     let mainPath = (myPath as NSString).deletingLastPathComponent + "/VoiceType_main"
 
+    // Build C-style argv (mainPath at [0], rest from CommandLine.arguments[1...])
     var cArgs: [UnsafeMutablePointer<CChar>?] = []
     cArgs.append(strdup(mainPath))
     for a in argv.dropFirst() {
@@ -73,11 +74,30 @@ func execMain(argv: [String]) -> Never {
     }
     cArgs.append(nil)
 
-    execv(mainPath, &cArgs)
-    // execv returned → error
-    let err = String(cString: strerror(errno))
-    fputs("VoiceType launcher: execv \(mainPath) failed: \(err)\n", stderr)
-    exit(127)
+    // Inherit env
+    var cEnv: [UnsafeMutablePointer<CChar>?] = []
+    for (k, v) in ProcessInfo.processInfo.environment {
+        cEnv.append(strdup("\(k)=\(v)"))
+    }
+    cEnv.append(nil)
+
+    var pid: pid_t = 0
+    var attrs = posix_spawnattr_t(bitPattern: 0)
+    posix_spawnattr_init(&attrs)
+    // POSIX_SPAWN_SETSID: detach from launcher's session so child becomes top-level
+    posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETSID))
+
+    let result = posix_spawn(&pid, mainPath, nil, &attrs, &cArgs, &cEnv)
+    posix_spawnattr_destroy(&attrs)
+
+    if result != 0 {
+        let err = String(cString: strerror(result))
+        fputs("VoiceType launcher: posix_spawn \(mainPath) failed: \(err)\n", stderr)
+        exit(127)
+    }
+
+    // Parent exits immediately — child reparents to launchd, becomes top-level
+    exit(0)
 }
 
 let argv = CommandLine.arguments
@@ -96,4 +116,4 @@ if me.contains(TRANSLOCATION_PATTERN) {
     // user gets one broken-permissions launch but it doesn't crash the install.
 }
 
-execMain(argv: argv)
+spawnMainAndExit(argv: argv)
