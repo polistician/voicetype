@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VoiceType — local voice dictation for macOS</title>
-  <meta name="description" content="A microphone in your menubar. Local Whisper underneath. Hold a key, speak, watch text appear in any focused app. macOS, Apple Silicon and Intel.">
+  <meta name="description" content="A microphone in your menubar. Local Whisper underneath. Hold a key, speak, the words paste into whichever app you were last typing in. macOS, Apple Silicon and Intel.">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,10 +74,10 @@
     <section class="callout" aria-labelledby="callout-headline">
       <div class="site-wrapper">
         <p class="section-label">— the whole point —</p>
-        <h2 id="callout-headline" class="callout__headline">Capture an idea the second it arrives.</h2>
+        <h2 id="callout-headline" class="callout__headline">Capture an idea the moment it arrives.</h2>
         <div class="callout__body">
-          <p>Think out loud without losing the thread. Speak however you actually speak — half-formed, code-mixed, in your own jargon — and VoiceType learns your vocabulary as you go.</p>
-          <p>Every other dictation tool first asks you to find the app, click record, then talk. VoiceType skips both. Hold ⌥ C from wherever you already are. You're already recording.</p>
+          <p>No need to be in any specific app. Mid-email, mid-terminal, mid-nothing — hold ⌥ C and speak. VoiceType writes the transcription to your clipboard and presses ⌘ V on your behalf. Anywhere a cursor blinks, your words land.</p>
+          <p>Think out loud without losing the thread. Speak however you actually speak — half-formed, code-mixed, in your own jargon — and VoiceType learns your vocabulary as you go. Every other dictation tool first asks you to find the right app, click record, then talk. VoiceType skips all of that.</p>
         </div>
       </div>
     </section>
@@ -117,6 +117,106 @@
         </div>
 
         <p class="how-caption">VoiceType writes the transcription to your clipboard and presses ⌘ V on your behalf. Anywhere ⌘ V works, VoiceType works.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════
+         §4b MENUBAR ICON STATES
+    ══════════════════════════════════════════════ -->
+    <section class="menubar-states" aria-labelledby="menubar-states-headline">
+      <div class="site-wrapper">
+        <p class="section-label">— section 1b —</p>
+        <h2 id="menubar-states-headline" class="section-title">How to recognize what's happening</h2>
+        <p class="menubar-states__intro">VoiceType lives in the menubar — the icon changes so you always know its state.</p>
+
+        <div class="mb-states-grid" role="list" aria-label="VoiceType menubar icon states">
+
+          <div class="mb-state" role="listitem">
+            <div class="mb-state__strip" aria-label="Menubar showing microphone icon — idle state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="28" viewBox="0 0 360 28" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mb-grad-idle" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#1d1d1f"/>
+                    <stop offset="100%" stop-color="#2a2a2d"/>
+                  </linearGradient>
+                </defs>
+                <rect width="360" height="28" fill="url(#mb-grad-idle)"/>
+                <text x="10" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="600" fill="#e0e0e0">&#xF8FF;</text>
+                <text x="28" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">File</text>
+                <text x="54" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">Edit</text>
+                <text x="296" y="19" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="13" fill="#e0e0e0">🎤</text>
+                <text x="316" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.55">9:41 AM</text>
+              </svg>
+            </div>
+            <p class="mb-state__name">🎤 Idle</p>
+            <p class="mb-state__desc">Ready to record. Hold ⌥ C to begin.</p>
+          </div>
+
+          <div class="mb-state" role="listitem">
+            <div class="mb-state__strip" aria-label="Menubar showing red circle — recording state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="28" viewBox="0 0 360 28" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mb-grad-rec" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#1d1d1f"/>
+                    <stop offset="100%" stop-color="#2a2a2d"/>
+                  </linearGradient>
+                </defs>
+                <rect width="360" height="28" fill="url(#mb-grad-rec)"/>
+                <text x="10" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="600" fill="#e0e0e0">&#xF8FF;</text>
+                <text x="28" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">File</text>
+                <text x="54" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">Edit</text>
+                <!-- Red circle icon representing recording state -->
+                <circle cx="306" cy="14" r="6" fill="#ff3b30"/>
+                <text x="318" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.55">9:41 AM</text>
+              </svg>
+            </div>
+            <p class="mb-state__name">🔴 Recording</p>
+            <p class="mb-state__desc">Holding ⌥ C — capturing audio.</p>
+          </div>
+
+          <div class="mb-state" role="listitem">
+            <div class="mb-state__strip" aria-label="Menubar showing hourglass — transcribing state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="28" viewBox="0 0 360 28" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mb-grad-proc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#1d1d1f"/>
+                    <stop offset="100%" stop-color="#2a2a2d"/>
+                  </linearGradient>
+                </defs>
+                <rect width="360" height="28" fill="url(#mb-grad-proc)"/>
+                <text x="10" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="600" fill="#e0e0e0">&#xF8FF;</text>
+                <text x="28" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">File</text>
+                <text x="54" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">Edit</text>
+                <text x="296" y="19" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="13" fill="#e0e0e0">⌛</text>
+                <text x="316" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.55">9:41 AM</text>
+              </svg>
+            </div>
+            <p class="mb-state__name">⌛ Transcribing</p>
+            <p class="mb-state__desc">Whisper is processing — takes under a second.</p>
+          </div>
+
+          <div class="mb-state" role="listitem">
+            <div class="mb-state__strip" aria-label="Menubar showing no-entry symbol — skipped state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="28" viewBox="0 0 360 28" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mb-grad-skip" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#1d1d1f"/>
+                    <stop offset="100%" stop-color="#2a2a2d"/>
+                  </linearGradient>
+                </defs>
+                <rect width="360" height="28" fill="url(#mb-grad-skip)"/>
+                <text x="10" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="600" fill="#e0e0e0">&#xF8FF;</text>
+                <text x="28" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">File</text>
+                <text x="54" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.5">Edit</text>
+                <text x="296" y="19" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="13" fill="#e0e0e0" opacity="0.7">🚫</text>
+                <text x="316" y="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" fill="#e0e0e0" opacity="0.55">9:41 AM</text>
+              </svg>
+            </div>
+            <p class="mb-state__name">🚫 Skipped</p>
+            <p class="mb-state__desc">Audio rejected — too short, too quiet, or a known hallucination. Nothing pasted.</p>
+          </div>
+
+        </div>
       </div>
     </section>
 
