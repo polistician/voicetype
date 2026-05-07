@@ -3,7 +3,7 @@ import json
 import os
 
 DEFAULT_CONFIG = {
-    "model": "base.en",
+    "model": "large-v3-turbo",
     "model_dir": os.path.expanduser("~/voicetype/models"),
     "sample_rate": 16000,
     "min_audio_seconds": 0.3,
@@ -15,6 +15,12 @@ DEFAULT_CONFIG = {
     "use_claude_cli_for_fix": False,
     # If False, clipboard is set but ⌘V is not synthesized — user pastes manually.
     "auto_paste": True,
+    # When True, transcripts are sent to ChatGPT via Integrator for cleanup
+    # (remove "um"s, fix punctuation, restructure rambling) before pasting.
+    # Audio never leaves the machine — only the transcribed text. Default off.
+    # Pair the user's Integrator account first via Settings or
+    # `python -m integrator_chat connect`.
+    "ai_cleanup_enabled": False,
 }
 
 LANGUAGES = {

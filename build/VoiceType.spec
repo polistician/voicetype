@@ -7,12 +7,16 @@ HOME = os.path.expanduser("~/voicetype")
 MODELS_DIR = os.path.join(HOME, "models")
 VERSION = open(os.path.join(HOME, "VERSION")).read().strip()
 
-# Collect any whisper.cpp model present (could be base.en, small, etc.)
+# Bundle only large-v3-turbo — avoids shipping multiple 800 MB+ models if the
+# old base.en still exists locally. Explicit list instead of glob.
 model_files = []
-if os.path.isdir(MODELS_DIR):
-    for f in os.listdir(MODELS_DIR):
-        if f.startswith("ggml-") and f.endswith(".bin"):
-            model_files.append((os.path.join(MODELS_DIR, f), "models"))
+DEFAULT_MODEL = "ggml-large-v3-turbo.bin"
+if os.path.isfile(os.path.join(MODELS_DIR, DEFAULT_MODEL)):
+    model_files.append((os.path.join(MODELS_DIR, DEFAULT_MODEL), "models"))
+
+# Bundle Silero VAD ONNX model
+if os.path.isfile(os.path.join(MODELS_DIR, "silero_vad.onnx")):
+    model_files.append((os.path.join(MODELS_DIR, "silero_vad.onnx"), "models"))
 
 # Compiled Swift helpers — only include if they exist
 swift_helpers = []
@@ -37,10 +41,12 @@ a = Analysis(
         "rumps", "sounddevice",
         "rapidfuzz", "rapidfuzz.fuzz",
         "numpy",
+        "onnxruntime",
         # Lazy imports — these are imported inside method bodies so PyInstaller's
         # static analyzer misses them. Forcing inclusion here.
         "updater",  # voxtype.py: _perform_update_async -> from updater import ...
         "keys",     # translator.py: _get_key -> from keys import KeyStore
+        "vad",      # voxtype.py: _get_vad -> from vad import SileroVAD
     ],
     hookspath=[],
     runtime_hooks=[],

@@ -21,13 +21,22 @@ source ~/voxtype/.venv/bin/activate
 echo "Installing Python dependencies..."
 WHISPER_COREML=1 pip install -r ~/voxtype/requirements.txt
 
-# Download base.en model
-MODEL_DIR=~/voxtype/models
+# Download large-v3-turbo model
+MODEL_DIR=~/voicetype/models
+MODEL=ggml-large-v3-turbo.bin
+MODEL_URL=https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL
 mkdir -p "$MODEL_DIR"
-if [ ! -f "$MODEL_DIR/ggml-base.en.bin" ]; then
-    echo "Downloading base.en model (~142MB)..."
-    curl -L "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" \
-        -o "$MODEL_DIR/ggml-base.en.bin"
+if [ ! -f "$MODEL_DIR/$MODEL" ]; then
+    echo "Downloading large-v3-turbo model (~810MB)..."
+    curl -L "$MODEL_URL" -o "$MODEL_DIR/$MODEL"
+fi
+
+# Download Silero VAD model
+VAD_MODEL=silero_vad.onnx
+VAD_URL=https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
+if [ ! -f "$MODEL_DIR/$VAD_MODEL" ]; then
+    echo "Downloading Silero VAD model (~200KB)..."
+    curl -L "$VAD_URL" -o "$MODEL_DIR/$VAD_MODEL"
 fi
 
 # Compile Swift helpers

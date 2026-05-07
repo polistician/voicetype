@@ -6,6 +6,7 @@ import threading
 import os
 import user_fixes
 import stats as vox_stats
+import integrator_chat
 from recorder import Recorder
 from transcriber_v2 import TranscriberV2
 from translator import Translator
@@ -69,6 +70,8 @@ class VoxType(rumps.App):
 
         self.paster = Paster()
         self.paster.set_hotkey(self.hotkey)
+
+        self._vad = None  # lazy-init on first audio (keeps cold-start fast)
 
         # Snippet infrastructure — lazy init embedder to avoid blocking startup
         self.snippet_store = SnippetStore()
@@ -189,6 +192,18 @@ class VoxType(rumps.App):
             self._update_status("Idle -- ready")
         threading.Thread(target=_reset, daemon=True).start()
 
+    def _get_vad(self):
+        """Lazy-init Silero VAD. Returns SileroVAD instance, or False if unavailable."""
+        if self._vad is None:
+            try:
+                from vad import SileroVAD
+                self._vad = SileroVAD()
+                print("[vad] Silero VAD ready", flush=True)
+            except Exception as e:
+                print(f"[vad] init failed, falling back to RMS gate: {e}", flush=True)
+                self._vad = False  # sentinel: not available
+        return self._vad
+
     def _start_recording(self):
         if not self._model_loaded.is_set():
             print("Model still loading, please wait...", flush=True)
@@ -242,17 +257,27 @@ class VoxType(rumps.App):
             self._flash_skip(f"too short ({duration:.2f}s)")
             return
 
-        # Energy gate: Whisper hallucinates plausible-sounding text on near-silent
-        # audio (e.g. "hope", "the", "mcgillum.com" on accidental short presses).
-        # RMS check skips clips with no real speech energy before they reach Whisper.
-        import numpy as _np
-        rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
-        min_rms = self.cfg.get("min_rms", 0.005)
-        if rms < min_rms:
-            print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
-            vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
-            self._flash_skip("too quiet")
-            return
+        # VAD gate (replaces RMS): catches clips with no speech before they hit Whisper.
+        # Silero VAD is a neural model — far more accurate than RMS at distinguishing
+        # real speech from ambient noise, keyboard clicks, or accidental keypresses.
+        # Falls back gracefully to RMS if VAD fails to initialise.
+        vad = self._get_vad()
+        if vad:  # SileroVAD instance
+            if not vad.contains_speech(audio, sample_rate=self.cfg["sample_rate"]):
+                print(f"  [skip] VAD: no speech detected ({duration:.2f}s)", flush=True)
+                vox_stats.log_decision("", "skip_no_speech", "vad rejected", duration_s=duration)
+                self._flash_skip("no speech")
+                return
+        else:
+            # Fallback to RMS gate if VAD failed to init
+            import numpy as _np
+            rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
+            min_rms = self.cfg.get("min_rms", 0.005)
+            if rms < min_rms:
+                print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
+                vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
+                self._flash_skip("too quiet")
+                return
 
         # Rich transcription: text + confidence + timing
         try:
@@ -333,6 +358,22 @@ class VoxType(rumps.App):
             self._intent_history = self._intent_history[-20:]
 
             if intent.action == "dictate":
+                # Optional ChatGPT cleanup pass — opt-in, off by default.
+                # Only the transcript text leaves the machine, never audio.
+                # Cleanup degrades gracefully on any error/timeout — see
+                # integrator_chat.cleanup() for the contract.
+                if self.cfg.get("ai_cleanup_enabled"):
+                    self._update_status("Cleaning…")
+                    pre_cleanup = text
+                    try:
+                        text = integrator_chat.cleanup(text, timeout_s=2.0)
+                    except Exception as e:
+                        # cleanup() should already swallow exceptions, but belt-and-braces:
+                        print(f"  [warn] integrator cleanup failed: {e} — pasting raw", flush=True)
+                        text = pre_cleanup
+                    if text != pre_cleanup:
+                        print(f"  [cleaned] {pre_cleanup} → {text}", flush=True)
+                        vox_stats.increment("ai_cleanups_applied")
                 self.transcript_history.push(text)
                 self._dictate_paste(text)
                 vox_stats.increment("recordings_total")
