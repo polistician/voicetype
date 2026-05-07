@@ -518,9 +518,11 @@
         <div>
           <p class="footer__col-title">What leaves your laptop</p>
           <ul class="footer__list footer__list--red" aria-label="Data that may leave device">
-            <li>DeepL translation requests — only if you add a key and only the text being translated</li>
+            <li><strong>Audio: never.</strong> Whisper runs entirely on-device.</li>
+            <li>DeepL translation requests — only if you add a DeepL key, only the text being translated</li>
+            <li>Transcript text for AI cleanup — only if you enable Integrator AI cleanup, only the post-Whisper text (not audio)</li>
           </ul>
-          <p class="footer__opt-note">DeepL is opt-in. No key set → nothing leaves. Audio never leaves regardless of any setting.</p>
+          <p class="footer__opt-note">All network features are opt-in. Default install sends nothing. Audio never leaves regardless of any setting. Local LLM cleanup (Phi-3-mini, optional 2GB download) keeps everything on-device if you'd rather not send transcripts anywhere.</p>
         </div>
 
       </div>
