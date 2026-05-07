@@ -1,6 +1,6 @@
 // onboarding.swift
 //
-// 4-screen first-launch onboarding for VoiceType. JSON-over-stdio.
+// 5-screen first-launch onboarding for VoiceType. JSON-over-stdio.
 // Reads commands on stdin. Emits events on stdout.
 //
 // Screens:
@@ -8,6 +8,7 @@
 //   2. Permissions     — mic + accessibility status + deeplinks
 //   3. Tutorial        — live dictation into NSTextField
 //   4. Optional key    — DeepL API key (SecureField + Verify + Save + Skip)
+//   5. AI cleanup      — opt-in Integrator pairing for ChatGPT cleanup pass
 
 import Cocoa
 import SwiftUI
@@ -22,6 +23,7 @@ struct OBInMessage: Codable {
     var text: String?
     var ok: Bool?
     var error: String?
+    var boolValue: Bool?
 }
 
 struct OBOutEvent: Codable {
@@ -41,7 +43,7 @@ func obEmit(_ event: OBOutEvent) {
 // MARK: - State
 
 class OnboardingState: ObservableObject {
-    @Published var currentScreen: Int = 1  // 1-4
+    @Published var currentScreen: Int = 1  // 1-5
 
     // Screen 2 – permissions
     @Published var micOK: Bool = false
@@ -56,6 +58,11 @@ class OnboardingState: ObservableObject {
     @Published var revealKey: Bool = false
     @Published var keyStatus: String = ""  // "", "verifying", "verified", "error"
     @Published var keyError: String = ""
+
+    // Screen 5 – Integrator (AI cleanup)
+    @Published var integratorBusy: Bool = false
+    @Published var integratorConnected: Bool = false
+    @Published var integratorError: String = ""
 
     // Permission check via Swift APIs (no Python round-trip needed)
 
@@ -146,6 +153,15 @@ class OnboardingState: ObservableObject {
                 keyStatus = "error"
                 keyError = msg.error ?? "verification failed"
             }
+        case "integrator_result":
+            integratorBusy = false
+            if msg.ok == true {
+                integratorConnected = true
+                integratorError = ""
+            } else {
+                integratorConnected = false
+                integratorError = msg.error ?? "pairing failed"
+            }
         default:
             break
         }
@@ -156,7 +172,7 @@ class OnboardingState: ObservableObject {
 
 struct ProgressDotsView: View {
     let currentScreen: Int
-    let total: Int = 4
+    let total: Int = 5
 
     var body: some View {
         HStack(spacing: 6) {
@@ -421,6 +437,7 @@ struct TutorialTextField: NSViewRepresentable {
 struct OptionalKeyView: View {
     @ObservedObject var state: OnboardingState
     var onBack: () -> Void
+    var onContinue: () -> Void
     var onDone: () -> Void
 
     var body: some View {
@@ -490,11 +507,11 @@ struct OptionalKeyView: View {
                 Spacer()
                 Button("Skip") {
                     obEmit(OBOutEvent(type: "skip_key"))
-                    onDone()
+                    onContinue()
                 }
                 .buttonStyle(.bordered)
-                Button(action: onDone) {
-                    Text("Done")
+                Button(action: onContinue) {
+                    Text("Continue")
                         .frame(minWidth: 80)
                 }
                 .buttonStyle(.borderedProminent)
@@ -521,6 +538,97 @@ struct OptionalKeyView: View {
             Text("× failed").font(.system(size: 11)).foregroundColor(.red)
         default:
             EmptyView()
+        }
+    }
+}
+
+// MARK: - Screen 5: AI cleanup (Integrator pairing)
+
+struct IntegratorView: View {
+    @ObservedObject var state: OnboardingState
+    var onBack: () -> Void
+    var onDone: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("AI cleanup (opt-in)")
+                .font(.system(size: 22, weight: .bold))
+            Text("Audio still never leaves your Mac. Optionally, Integrator can clean up transcripts using your ChatGPT subscription before pasting \u{2014} fixes \u{201C}um\u{201D}s, punctuation, restructures rambling sentences. Off by default. You can enable it any time in Settings.")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Status").font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    statusBadge
+                }
+                if !state.integratorError.isEmpty {
+                    Text("\u{00D7} \(state.integratorError)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+                Text("integrator.polistician.ai \u{2192}")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(red: 0.302, green: 0.561, blue: 0.859))
+                    .onTapGesture {
+                        if let url = URL(string: "https://integrator.polistician.ai") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+            }
+            .padding(14)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+
+            Spacer()
+            HStack {
+                Button("Back", action: onBack).buttonStyle(.bordered)
+                Spacer()
+                Button("Skip") {
+                    obEmit(OBOutEvent(type: "skip_integrator"))
+                    onDone()
+                }
+                .buttonStyle(.bordered)
+                if state.integratorConnected {
+                    Button(action: onDone) {
+                        Text("Done")
+                            .frame(minWidth: 80)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    Button(action: {
+                        state.integratorBusy = true
+                        state.integratorError = ""
+                        obEmit(OBOutEvent(type: "integrator_connect"))
+                    }) {
+                        Text(state.integratorBusy ? "Connecting\u{2026}" : "Connect Integrator now")
+                            .frame(minWidth: 160)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(state.integratorBusy)
+                }
+            }
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+    }
+
+    @ViewBuilder
+    var statusBadge: some View {
+        if state.integratorBusy {
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("connecting\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
+            }
+        } else if state.integratorConnected {
+            Text("\u{2713} connected").font(.system(size: 11)).foregroundColor(.green)
+        } else {
+            Text("not connected \u{2014} optional")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         }
     }
 }
@@ -565,6 +673,13 @@ struct OnboardingView: View {
                     OptionalKeyView(
                         state: state,
                         onBack: { retreat() },
+                        onContinue: { advance() },
+                        onDone: { finishOnboarding() }
+                    )
+                case 5:
+                    IntegratorView(
+                        state: state,
+                        onBack: { retreat() },
                         onDone: { finishOnboarding() }
                     )
                 default:
@@ -579,7 +694,7 @@ struct OnboardingView: View {
 
     private func advance() {
         withAnimation {
-            if state.currentScreen < 4 {
+            if state.currentScreen < 5 {
                 state.currentScreen += 1
             } else {
                 finishOnboarding()
