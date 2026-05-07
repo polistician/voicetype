@@ -30,6 +30,7 @@ def _load() -> dict:
         "low_confidence_words": {},   # word -> count
         "vocabulary": {},             # word -> count (all words seen 3+ times)
         "corrections": [],            # manual corrections (future: if user retypes)
+        "per_app": {},                # bundle_id -> {word: count}
     }
 
 
@@ -65,11 +66,16 @@ def _save(profile: dict):
     os.replace(tmp, PROFILE_PATH)  # atomic on POSIX
 
 
-def update(rich_result: dict):
+def update(rich_result: dict, app: str | None = None):
     """Update the local profile after a transcription.
 
     rich_result is from TranscriberV2.transcribe_rich():
     {text, segments, avg_confidence, low_confidence_words, duration_ms, words_per_minute}
+
+    app: optional bundle ID of the frontmost app during recording (e.g.
+    "com.todesktop.230313mzl4w4u92" for Cursor). When provided, words are
+    also accumulated in the per-app counter so get_whisper_prompt_for_app()
+    can return app-specific vocabulary biasing.
     """
     import math
     profile = _load()
@@ -103,14 +109,26 @@ def update(rich_result: dict):
     # Accumulate vocabulary (all words seen)
     text = rich_result.get("text", "")
     vocab = profile.get("vocabulary", {})
+    words_clean = []
     for word in text.split():
         clean = word.strip(".,!?;:'\"()[]{}").lower()
         if len(clean) > 2:
             vocab[clean] = vocab.get(clean, 0) + 1
+            words_clean.append(clean)
     # Keep top 200
     profile["vocabulary"] = dict(
         sorted(vocab.items(), key=lambda x: -x[1])[:200]
     )
+
+    # Per-app vocabulary: accumulate words against the bundle ID
+    if app and words_clean:
+        per_app = profile.get("per_app", {})
+        app_vocab = per_app.get(app, {})
+        for w in words_clean:
+            app_vocab[w] = app_vocab.get(w, 0) + 1
+        # Keep top 100 per app
+        per_app[app] = dict(sorted(app_vocab.items(), key=lambda x: -x[1])[:100])
+        profile["per_app"] = per_app
 
     _save(profile)
 
@@ -169,6 +187,71 @@ def get_whisper_prompt() -> str:
     # Cap at 15: long prompts cause Whisper to bias output toward the prompt's
     # style and hallucinate phantom words from the list during silence.
     return "Words I use: " + " ".join(domain_words[:15])
+
+
+def get_whisper_prompt_for_app(app: str | None) -> str:
+    """Same as get_whisper_prompt() but boosts words frequent for the given app.
+
+    Combines global frequent (top 10) + app-frequent (top 10), deduped,
+    capped at 15 total. Long prompts hurt Whisper by biasing its output
+    toward the prompt's style and hallucinating phantom words.
+    """
+    if not app:
+        return get_whisper_prompt()
+
+    profile = _load()
+    vocab = profile.get("vocabulary", {})
+    per_app = profile.get("per_app", {})
+    app_vocab = per_app.get(app, {})
+
+    _COMMON = {
+        "the", "and", "you", "have", "that", "but", "not", "for", "would",
+        "it's", "like", "should", "this", "what", "are", "when", "then",
+        "can", "actually", "there", "they", "don't", "first", "see", "all",
+        "that's", "want", "with", "also", "your", "example", "about",
+        "i'm", "just", "why", "still", "how", "one", "something", "there's",
+        "because", "already", "has", "new", "look", "where", "get", "some",
+        "way", "know", "which", "think", "them", "make", "say", "out",
+        "however", "find", "does", "show", "didn't", "based", "from",
+        "only", "give", "two", "three", "was", "well", "back", "right",
+        "call", "same", "work", "add", "open", "start", "done", "take",
+        "most", "tell", "between", "before", "able", "everything", "etc",
+        "if", "is", "it", "to", "of", "in", "on", "or", "be", "so",
+        "do", "at", "by", "an", "no", "up", "my", "we", "he", "she",
+        "idea", "more", "log", "page", "different", "create", "through",
+        "did", "will", "note", "hello", "says", "too", "menu", "record",
+        "feedback", "even", "similar", "other", "thing", "addition", "fix",
+        "their", "type", "good", "actions", "day", "been", "interface",
+        "settings", "click", "could", "chat", "quick", "home", "research",
+        "user", "users", "agent", "agents", "page", "pages", "use", "used",
+        "uses", "using", "now", "here", "very", "really", "much", "many",
+        "any", "into", "both", "each", "had", "her", "him", "his", "its",
+        "let", "lets", "may", "might", "need", "needs", "next", "off", "our",
+        "over", "people", "send", "sent", "should", "since", "such", "than",
+        "their", "these", "those", "told", "try", "trying", "until", "us",
+        "we're", "weren't", "while", "who", "whom", "whose", "with", "within",
+    }
+
+    def _domain_words(source: dict, n: int) -> list[str]:
+        frequent = [w for w, c in sorted(source.items(), key=lambda x: -x[1]) if c >= 3]
+        return [w for w in frequent if w.lower() not in _COMMON and len(w) >= 4][:n]
+
+    global_top = _domain_words(vocab, 10)
+    app_top = _domain_words(app_vocab, 10)
+
+    # Merge: app words first (higher signal), then global, dedup, cap at 15
+    seen: set[str] = set()
+    merged: list[str] = []
+    for w in app_top + global_top:
+        if w not in seen:
+            seen.add(w)
+            merged.append(w)
+        if len(merged) >= 15:
+            break
+
+    if not merged:
+        return ""
+    return "Words I use: " + " ".join(merged)
 
 
 def get_low_confidence_words() -> list[str]:

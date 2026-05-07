@@ -21,6 +21,13 @@ DEFAULT_CONFIG = {
     # Pair the user's Integrator account first via Settings or
     # `python -m integrator_chat connect`.
     "ai_cleanup_enabled": False,
+    # EXPERIMENTAL: LLM post-correction via Phi-3-mini (local, ~2GB model).
+    # When True, downloads Phi-3-mini-Q4 to ~/.voicetype/models/llm/ on first use
+    # and runs it after Whisper + rule-based corrections. Adds ~500ms latency.
+    # Enable in Settings → Experimental, or set directly here.
+    # Requires llama-cpp-python (optional dep, NOT in install.sh):
+    #   pip install llama-cpp-python
+    "use_llm_correction": False,
 }
 
 LANGUAGES = {

@@ -44,6 +44,19 @@ class SettingsState: ObservableObject {
     @Published var revealKey: Bool = false
     @Published var autoPaste: Bool = true
 
+    // AI cleanup (Integrator)
+    @Published var aiCleanupEnabled: Bool = false
+    @Published var integratorConnected: Bool = false
+    @Published var integratorEmail: String = ""
+    @Published var integratorBusy: Bool = false
+    @Published var integratorError: String = ""
+
+    // LLM post-correction (Experimental)
+    @Published var useLLMCorrection: Bool = false
+    @Published var llmModelDownloaded: Bool = false
+    @Published var llmDownloadBusy: Bool = false
+    @Published var llmDownloadError: String = ""
+
     func handle(_ msg: InMessage) {
         switch msg.type {
         case "key_status":
@@ -67,6 +80,25 @@ class SettingsState: ObservableObject {
             if msg.key == "auto_paste", let v = msg.boolValue {
                 self.autoPaste = v
             }
+            if msg.key == "ai_cleanup_enabled", let v = msg.boolValue {
+                self.aiCleanupEnabled = v
+            }
+            if msg.key == "use_llm_correction", let v = msg.boolValue {
+                self.useLLMCorrection = v
+            }
+        case "llm_model_status":
+            self.llmModelDownloaded = msg.boolValue ?? false
+            let v = msg.value ?? ""
+            if v == "downloading" {
+                self.llmDownloadBusy = true
+                self.llmDownloadError = ""
+            } else if v.hasPrefix("error:") {
+                self.llmDownloadBusy = false
+                self.llmDownloadError = String(v.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+            } else {
+                self.llmDownloadBusy = false
+                self.llmDownloadError = ""
+            }
         case "key_value":
             if msg.account == "deepl", let v = msg.value {
                 self.deeplKey = v
@@ -74,6 +106,20 @@ class SettingsState: ObservableObject {
                 if self.deeplStatus.isEmpty || self.deeplStatus == "not set" {
                     self.deeplStatus = self.deeplPresent ? "saved" : "not set"
                 }
+            }
+        case "integrator_status":
+            self.integratorConnected = msg.boolValue ?? false
+            let v = msg.value ?? ""
+            if v == "connecting" {
+                self.integratorBusy = true
+                self.integratorError = ""
+            } else if v.hasPrefix("error:") {
+                self.integratorBusy = false
+                self.integratorError = String(v.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+            } else {
+                self.integratorBusy = false
+                self.integratorError = ""
+                self.integratorEmail = v
             }
         default:
             break
@@ -207,11 +253,154 @@ struct SettingsView: View {
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
 
+            Text("AI cleanup")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .padding(.top, 12)
+            AICleanupRow(state: state)
+
+            Text("Experimental")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .padding(.top, 12)
+            LLMCorrectionRow(state: state)
+
             Spacer()
         }
         .padding(20)
-        .frame(width: 480, height: 430)
+        .frame(width: 480, height: 700)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
+struct AICleanupRow: View {
+    @ObservedObject var state: SettingsState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Toggle("AI cleanup (via Integrator)", isOn: $state.aiCleanupEnabled)
+                    .onChange(of: state.aiCleanupEnabled) { _, newValue in
+                        emit(OutEvent(type: "set_setting", key: "ai_cleanup_enabled", boolValue: newValue))
+                    }
+                    .disabled(!state.integratorConnected)
+                Spacer()
+                statusBadge
+            }
+            Text("Sends transcripts (not audio) to ChatGPT via Integrator to remove \u{201C}um\u{201D}s, fix punctuation, and tidy rambling. 2-second budget; falls back to raw transcript on any error.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                if state.integratorConnected {
+                    Button("Disconnect") {
+                        emit(OutEvent(type: "integrator_disconnect"))
+                    }
+                    .buttonStyle(.bordered)
+                    if !state.integratorEmail.isEmpty {
+                        Text(state.integratorEmail)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Button(state.integratorBusy ? "Connecting\u{2026}" : "Connect Integrator") {
+                        emit(OutEvent(type: "integrator_connect"))
+                    }
+                    .disabled(state.integratorBusy)
+                    .buttonStyle(.borderedProminent)
+                }
+                Spacer()
+                Text("integrator.polistician.ai \u{2192}")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(red: 0.302, green: 0.561, blue: 0.859))
+                    .onTapGesture {
+                        if let url = URL(string: "https://integrator.polistician.ai") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+            }
+            if !state.integratorError.isEmpty {
+                Text("\u{00D7} \(state.integratorError)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(14)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    var statusBadge: some View {
+        if state.integratorBusy {
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("connecting\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
+            }
+        } else if state.integratorConnected {
+            Text("\u{2713} connected").font(.system(size: 11)).foregroundColor(.green)
+        } else {
+            Text("\u{00D7} not connected").font(.system(size: 11)).foregroundColor(.secondary)
+        }
+    }
+}
+
+struct LLMCorrectionRow: View {
+    @ObservedObject var state: SettingsState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Toggle("LLM post-correction (Phi-3-mini, ~2 GB download, +500 ms)", isOn: $state.useLLMCorrection)
+                    .onChange(of: state.useLLMCorrection) { _, newValue in
+                        emit(OutEvent(type: "set_setting", key: "use_llm_correction", boolValue: newValue))
+                        // If enabling and model is not present, trigger download
+                        if newValue && !state.llmModelDownloaded {
+                            emit(OutEvent(type: "llm_download_model"))
+                        }
+                    }
+                Spacer()
+                modelStatusBadge
+            }
+            Text("Runs Phi-3-mini locally after Whisper to remove disfluencies, fix word errors, and match your style. Audio never leaves the machine. Model is downloaded once to ~/.voicetype/models/llm/.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !state.llmModelDownloaded {
+                HStack(spacing: 8) {
+                    Button(state.llmDownloadBusy ? "Downloading…" : "Download model now") {
+                        emit(OutEvent(type: "llm_download_model"))
+                    }
+                    .disabled(state.llmDownloadBusy)
+                    .buttonStyle(.borderedProminent)
+                    Spacer()
+                }
+            }
+            if !state.llmDownloadError.isEmpty {
+                Text("\u{00D7} \(state.llmDownloadError)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(14)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    var modelStatusBadge: some View {
+        if state.llmDownloadBusy {
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("downloading\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
+            }
+        } else if state.llmModelDownloaded {
+            Text("\u{2713} model downloaded").font(.system(size: 11)).foregroundColor(.green)
+        } else {
+            Text("model needed").font(.system(size: 11)).foregroundColor(.secondary)
+        }
     }
 }
 
@@ -224,7 +413,7 @@ class SettingsWindowController: NSWindowController {
         self.state = state
         let view = NSHostingView(rootView: SettingsView(state: state))
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -326,7 +515,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             emit(OutEvent(type: "refresh_status", account: "deepl"))
         case "close":
             controller.window?.orderOut(nil)
-        case "key_status", "verify_result", "setting_status", "key_value":
+        case "key_status", "verify_result", "setting_status", "key_value", "integrator_status", "llm_model_status":
             state.handle(msg)
         default:
             break

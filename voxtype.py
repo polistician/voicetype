@@ -11,7 +11,7 @@ from recorder import Recorder
 from transcriber_v2 import TranscriberV2
 from translator import Translator
 from paster import Paster
-from voice_profile import update as update_profile, get_whisper_prompt
+from voice_profile import update as update_profile, get_whisper_prompt, get_whisper_prompt_for_app
 from corrections import apply_corrections, seed_defaults, auto_learn_corrections
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
@@ -72,6 +72,8 @@ class VoxType(rumps.App):
         self.paster.set_hotkey(self.hotkey)
 
         self._vad = None  # lazy-init on first audio (keeps cold-start fast)
+        self._current_app: str | None = None  # bundle ID of focused app at recording start
+        self._llm_corrector = None  # lazy-init on first use (opt-in, off by default)
 
         # Snippet infrastructure — lazy init embedder to avoid blocking startup
         self.snippet_store = SnippetStore()
@@ -161,7 +163,8 @@ class VoxType(rumps.App):
         print("Model loaded!", flush=True)
         self._update_status("Idle -- ready")
 
-    def _refresh_whisper_vocab(self):
+    def _refresh_whisper_vocab(self, app: str | None = None):
+        """Rebuild Whisper vocabulary, optionally biased toward a specific app."""
         if not self.transcriber:
             return
         bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help", "clipboard"}
@@ -169,7 +172,7 @@ class VoxType(rumps.App):
             for tok in s.name.split():
                 if tok.isalpha() and len(tok) > 2:
                     bias_words.add(tok.lower())
-        prompt = get_whisper_prompt()
+        prompt = get_whisper_prompt_for_app(app) if app else get_whisper_prompt()
         existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
         self.transcriber.set_vocabulary(sorted(existing | bias_words))
 
@@ -218,9 +221,13 @@ class VoxType(rumps.App):
             except Exception as e:
                 print(f"  [warn] recorder.stop() during reset failed: {e}", flush=True)
             self.recording = False
+        # Capture frontmost app before we steal focus — so we know the user's context
+        from context import frontmost_app, app_short_name
+        self._current_app = frontmost_app()
         self.recording = True
         self.title = "\U0001f534"
-        self._update_status("Recording...")
+        app_label = app_short_name(self._current_app) if self._current_app else None
+        self._update_status(f"Recording in {app_label}…" if app_label else "Recording...")
         try:
             self.recorder.start()
         except Exception as e:
@@ -229,7 +236,7 @@ class VoxType(rumps.App):
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
-        print("Recording...", flush=True)
+        print(f"Recording... (app={self._current_app or 'unknown'})", flush=True)
 
     def _stop_recording(self):
         if not self.recording:
@@ -321,18 +328,27 @@ class VoxType(rumps.App):
 
             # 2. Update local voice profile (background-safe)
             try:
-                update_profile(rich)
+                update_profile(rich, app=self._current_app)
                 conf = rich.get("avg_confidence", 0)
                 lc = rich.get("low_confidence_words", [])
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
-                prompt = get_whisper_prompt()
-                if prompt:
-                    words = prompt.replace("Words I use: ", "").split()
-                    self.transcriber.set_vocabulary(words)
+                self._refresh_whisper_vocab(app=self._current_app)
                 auto_learn_corrections()
             except Exception:
                 pass
+
+            # 2b. Optional LLM post-correction (default OFF — set use_llm_correction in config)
+            if self.cfg.get("use_llm_correction", False):
+                try:
+                    if self._llm_corrector is None:
+                        from llm_corrector import LLMCorrector
+                        self._llm_corrector = LLMCorrector()
+                    from corrections import get_corrections_dict
+                    user_corr = get_corrections_dict() if callable(getattr(__import__('corrections'), 'get_corrections_dict', None)) else None
+                    text = self._llm_corrector.correct(text, user_corrections=user_corr)
+                except Exception as e:
+                    print(f"[llm-correct] failed, using raw transcript: {e}", flush=True)
 
             # 3. Pronunciation / training data — off the critical path
             audio_copy = audio.copy()

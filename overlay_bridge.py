@@ -173,6 +173,8 @@ class SettingsBridge:
         if event_type == "refresh_status":
             self._on_refresh_status(account)
             self._emit_setting_status("auto_paste")
+            self._emit_setting_status("ai_cleanup_enabled")
+            self._emit_integrator_status()
         elif event_type == "verify_key":
             self._on_verify_key(account, msg.get("value", ""))
         elif event_type == "set_key":
@@ -181,6 +183,10 @@ class SettingsBridge:
             self._on_delete_key(account)
         elif event_type == "set_setting":
             self._on_set_setting(msg.get("key", ""), msg.get("boolValue"))
+        elif event_type == "integrator_connect":
+            self._on_integrator_connect()
+        elif event_type == "integrator_disconnect":
+            self._on_integrator_disconnect()
         elif event_type == "window_closed":
             # User closed the window — subprocess stays alive for reopening
             pass
@@ -257,7 +263,7 @@ class SettingsBridge:
     def _emit_setting_status(self, key: str) -> None:
         """Emit current setting value to the settings window."""
         cfg_path = os.path.expanduser("~/.voicetype/config.json")
-        defaults = {"auto_paste": True}
+        defaults = {"auto_paste": True, "ai_cleanup_enabled": False}
         try:
             with open(cfg_path) as f:
                 cfg = json.load(f)
@@ -265,6 +271,54 @@ class SettingsBridge:
         except Exception:
             value = defaults.get(key, True)
         self._send({"type": "setting_status", "key": key, "boolValue": value})
+
+    # ── Integrator (ChatGPT cleanup) wiring ────────────────────────────────
+
+    def _emit_integrator_status(self) -> None:
+        """Tell the settings window whether the user is paired with Integrator."""
+        try:
+            import integrator_chat
+            connected = integrator_chat.is_connected()
+            email = ""
+            if connected:
+                snap = integrator_chat.status()
+                email = snap.get("user_email") or ""
+        except Exception:
+            connected = False
+            email = ""
+        self._send({
+            "type": "integrator_status",
+            "boolValue": connected,
+            "value": email,
+        })
+
+    def _on_integrator_connect(self) -> None:
+        """Run the OAuth pairing flow in a worker thread so we don't block the
+        settings event loop. Streams status updates as it goes."""
+        def _worker():
+            self._send({"type": "integrator_status", "boolValue": False, "value": "connecting"})
+            try:
+                import integrator_chat
+                integrator_chat.connect()
+            except Exception as e:
+                print(f"[settings] integrator connect failed: {e}", flush=True)
+                self._send({
+                    "type": "integrator_status",
+                    "boolValue": False,
+                    "value": f"error: {e}",
+                })
+                return
+            self._emit_integrator_status()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_integrator_disconnect(self) -> None:
+        try:
+            import integrator_chat
+            integrator_chat.disconnect()
+        except Exception as e:
+            print(f"[settings] integrator disconnect failed: {e}", flush=True)
+        self._emit_integrator_status()
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +404,11 @@ class OnboardingBridge:
         elif event_type == "skip_key":
             # No-op: user chose to skip, onboarding_complete will follow
             pass
+        elif event_type == "integrator_connect":
+            self._on_integrator_connect()
+        elif event_type == "skip_integrator":
+            # No-op: user chose to skip, onboarding_complete will follow
+            pass
         elif event_type == "onboarding_complete":
             self._on_complete()
 
@@ -379,6 +438,39 @@ class OnboardingBridge:
             print(f"[onboarding] save_key error: {e}", flush=True)
         # Saving implies verified; confirm success so UI can advance
         self._send({"type": "key_verify_result", "ok": True})
+
+    def _on_integrator_connect(self) -> None:
+        """Run the OAuth pairing in a worker so the onboarding window stays responsive.
+
+        Emits `integrator_result` with ok=true|false. If pairing succeeds, also
+        flips on the `ai_cleanup_enabled` config flag so the user gets the
+        feature they just opted into without an extra toggle step.
+        """
+        def _worker():
+            try:
+                import integrator_chat
+                integrator_chat.connect()
+            except Exception as e:
+                print(f"[onboarding] integrator connect failed: {e}", flush=True)
+                self._send({"type": "integrator_result", "ok": False, "error": str(e)})
+                return
+            # On success, enable the cleanup feature by default — the whole point
+            # of going through this screen is to use it.
+            cfg_path = os.path.expanduser("~/.voicetype/config.json")
+            try:
+                cfg: dict = {}
+                if os.path.exists(cfg_path):
+                    with open(cfg_path) as f:
+                        cfg = json.load(f)
+                cfg["ai_cleanup_enabled"] = True
+                os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+                with open(cfg_path, "w") as f:
+                    json.dump(cfg, f, indent=2)
+            except Exception as e:
+                print(f"[onboarding] could not enable ai_cleanup_enabled: {e}", flush=True)
+            self._send({"type": "integrator_result", "ok": True})
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_complete(self) -> None:
         """Write the onboarding_complete flag and notify the caller."""
