@@ -20,8 +20,11 @@ import numpy as np
 
 
 class SileroVAD:
-    def __init__(self, model_path: str | None = None, threshold: float = 0.5):
-        """threshold: speech-probability above this counts as speech."""
+    def __init__(self, model_path: str | None = None, threshold: float = 0.05):
+        """threshold: speech-probability above this counts as speech.
+        Very permissive (0.05) — Silero v5's confidence scores on short
+        dictation clips are often low; better to let Whisper see all audio
+        and use its own silence handling than drop real dictation here."""
         if model_path is None:
             candidates = [
                 os.path.expanduser("~/voicetype/models/silero_vad.onnx"),

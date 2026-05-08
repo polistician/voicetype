@@ -127,9 +127,16 @@ class VoxType(rumps.App):
         """Open the Settings window via the SettingsBridge."""
         if not hasattr(self, "settings"):
             from overlay_bridge import SettingsBridge
-            self.settings = SettingsBridge()
+            self.settings = SettingsBridge(on_setting_change=self._on_setting_changed)
             self.settings.start()
         self.settings.open_window()
+
+    def _on_setting_changed(self, key, value):
+        """Hot-reload a config setting toggled in Settings.
+        Mutating self.cfg is safe: dict-entry swaps are atomic in CPython
+        and the read site in _transcribe_and_paste runs on a separate thread."""
+        self.cfg[key] = value
+        print(f"[cfg] hot-reload {key}={value}", flush=True)
 
     def _on_lang_select(self, sender):
         self.output_language = sender._lang_code
