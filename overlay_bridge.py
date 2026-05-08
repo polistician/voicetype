@@ -109,11 +109,17 @@ def verify_deepl(key: str) -> tuple[bool, str]:
 
 
 class SettingsBridge:
-    """Spawns the settings_window Swift helper and routes its events."""
+    """Spawns the settings_window Swift helper and routes its events.
 
-    def __init__(self):
+    on_setting_change: optional callback fired when the user toggles a setting
+    in the Settings window. Receives (key, value). Used by voxtype.py to
+    hot-reload self.cfg so changes take effect without a daemon restart.
+    """
+
+    def __init__(self, on_setting_change=None):
         self._proc: Optional[subprocess.Popen] = None
         self._reader: Optional[threading.Thread] = None
+        self.on_setting_change = on_setting_change
 
     def start(self) -> bool:
         """Spawn the helper subprocess. Returns True if spawned."""
@@ -245,7 +251,8 @@ class SettingsBridge:
         self._send({"type": "key_status", "account": account, "present": False})
 
     def _on_set_setting(self, key: str, bool_value) -> None:
-        """Update a boolean setting in config.json."""
+        """Update a boolean setting in config.json AND notify the parent
+        process to hot-reload its in-memory config."""
         cfg_path = os.path.expanduser("~/.voicetype/config.json")
         try:
             with open(cfg_path) as f:
@@ -259,6 +266,12 @@ class SettingsBridge:
             print(f"[settings] set {key}={bool_value}", flush=True)
         except Exception as e:
             print(f"[settings] set_setting write error: {e}", flush=True)
+        # Hot-reload: notify parent so the change applies to the running app
+        if self.on_setting_change:
+            try:
+                self.on_setting_change(key, bool_value)
+            except Exception as e:
+                print(f"[settings] on_setting_change callback failed: {e}", flush=True)
 
     def _emit_setting_status(self, key: str) -> None:
         """Emit current setting value to the settings window."""
