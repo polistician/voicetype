@@ -46,7 +46,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         if status1 != noErr {
-            fputs("ERROR: Could not register Option+C hotkey (status: \(status1))\n", stderr)
+            fputs("WARNING: Option+C dictate hotkey failed to register (status: \(status1))\n", stderr)
+        }
+
+        // ALSO register Control+Option+C — fallback for German QWERTZ layouts
+        // where ⌥C is a dead-key composition (produces ç) and macOS consumes
+        // the event at the layout level before Carbon hotkey delivery. Adding
+        // Control breaks the dead-key path. Both hotkeys fire the same handler.
+        var dictateAltRef: EventHotKeyRef?
+        let dictateAltID = EventHotKeyID(signature: OSType(0x564F5854), id: 4)
+        let status1b = RegisterEventHotKey(
+            UInt32(kVK_ANSI_C),
+            UInt32(optionKey | controlKey),
+            dictateAltID,
+            GetApplicationEventTarget(),
+            0,
+            &dictateAltRef
+        )
+        if status1b != noErr {
+            fputs("WARNING: Control+Option+C alternate hotkey failed (status: \(status1b))\n", stderr)
+        }
+
+        if status1 != noErr && status1b != noErr {
+            fputs("ERROR: Both ⌥C and ⌃⌥C dictate hotkeys failed to register\n", stderr)
             exit(1)
         }
 
@@ -64,9 +86,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         if status2 != noErr {
-            fputs("ERROR: Could not register Option+T hotkey (status: \(status2))\n", stderr)
-            exit(1)
+            fputs("WARNING: Option+T translate hotkey failed (status: \(status2))\n", stderr)
         }
+
+        // ALSO register Control+Option+T (QWERTZ fallback)
+        var translateAltRef: EventHotKeyRef?
+        let translateAltID = EventHotKeyID(signature: OSType(0x564F5854), id: 5)
+        let _ = RegisterEventHotKey(
+            UInt32(kVK_ANSI_T),
+            UInt32(optionKey | controlKey),
+            translateAltID,
+            GetApplicationEventTarget(),
+            0,
+            &translateAltRef
+        )
 
         // Register Option+Shift+S hotkey (kVK_ANSI_S = 1) — open snippet overlay
         var overlayKeyRef: EventHotKeyRef?
@@ -104,8 +137,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let kind = GetEventKind(event)
 
-                if hotKeyID.id == 1 {
-                    // Option+C — dictate
+                if hotKeyID.id == 1 || hotKeyID.id == 4 {
+                    // Option+C OR Control+Option+C — dictate (QWERTZ-safe alt)
                     if kind == UInt32(kEventHotKeyPressed) {
                         fputs("START\n", stdout)
                         fflush(stdout)
@@ -113,8 +146,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         fputs("STOP\n", stdout)
                         fflush(stdout)
                     }
-                } else if hotKeyID.id == 2 {
-                    // Option+T — translate clipboard (fire on press only)
+                } else if hotKeyID.id == 2 || hotKeyID.id == 5 {
+                    // Option+T OR Control+Option+T — translate (fire on press only)
                     if kind == UInt32(kEventHotKeyPressed) {
                         fputs("TRANSLATE\n", stdout)
                         fflush(stdout)
