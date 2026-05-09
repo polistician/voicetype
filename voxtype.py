@@ -271,27 +271,34 @@ class VoxType(rumps.App):
             self._flash_skip(f"too short ({duration:.2f}s)")
             return
 
-        # VAD gate (replaces RMS): catches clips with no speech before they hit Whisper.
-        # Silero VAD is a neural model — far more accurate than RMS at distinguishing
-        # real speech from ambient noise, keyboard clicks, or accidental keypresses.
-        # Falls back gracefully to RMS if VAD fails to initialise.
+        # Speech detection: VAD (Silero) primary, RMS (energy) sanity-check.
+        # Goal — drop silent/keyboard-only clips, never drop real speech.
+        # Silero v5 sometimes false-negatives on quiet/short dictation, so we
+        # require BOTH VAD-says-no AND RMS-says-quiet before skipping.
+        import numpy as _np
+        rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
+        min_rms = self.cfg.get("min_rms", 0.003)
+
         vad = self._get_vad()
+        vad_no_speech = False
         if vad:  # SileroVAD instance
-            if not vad.contains_speech(audio, sample_rate=self.cfg["sample_rate"]):
-                print(f"  [skip] VAD: no speech detected ({duration:.2f}s)", flush=True)
-                vox_stats.log_decision("", "skip_no_speech", "vad rejected", duration_s=duration)
-                self._flash_skip("no speech")
-                return
-        else:
-            # Fallback to RMS gate if VAD failed to init
-            import numpy as _np
-            rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
-            min_rms = self.cfg.get("min_rms", 0.005)
-            if rms < min_rms:
-                print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
-                vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
-                self._flash_skip("too quiet")
-                return
+            vad_no_speech = not vad.contains_speech(audio, sample_rate=self.cfg["sample_rate"])
+
+        if vad and vad_no_speech and rms < min_rms:
+            # Both VAD AND RMS agree: silence. Skip.
+            print(f"  [skip] silence: VAD=no, rms={rms:.4f} < {min_rms}", flush=True)
+            vox_stats.log_decision("", "skip_no_speech", f"vad+rms<{min_rms:.3f}", duration_s=duration)
+            self._flash_skip("no speech")
+            return
+        if not vad and rms < min_rms:
+            # No VAD available; pure RMS gate.
+            print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
+            vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
+            self._flash_skip("too quiet")
+            return
+        if vad and vad_no_speech:
+            # VAD said no but RMS shows real signal — VAD is wrong, let Whisper try.
+            print(f"  [vad-override] VAD said no but rms={rms:.4f} ≥ {min_rms} — passing through", flush=True)
 
         # Rich transcription: text + confidence + timing
         try:
