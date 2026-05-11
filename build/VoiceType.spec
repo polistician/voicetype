@@ -48,6 +48,7 @@ a = Analysis(
         "keys",     # translator.py: _get_key -> from keys import KeyStore
         "vad",      # voxtype.py: _get_vad -> from vad import SileroVAD
         "integrator_chat",  # voxtype.py: line 9 top-level import
+        "streaming_transcriber",  # voxtype.py: _spawn_streamer -> lazy import
     ],
     hookspath=[],
     runtime_hooks=[],

@@ -1,4 +1,5 @@
 # recorder.py
+import threading
 import numpy as np
 import sounddevice as sd
 
@@ -12,10 +13,31 @@ class Recorder:
         # Last device that successfully opened — try this one first next time
         # so we don't re-probe everything when the user's preferred mic works.
         self._last_good = None
+        # Streaming-mode support: a separate cursor lets a poller drain audio
+        # incrementally during recording without disturbing the final stop()
+        # result. _pop_cursor is the index of the next un-popped chunk.
+        self._pop_cursor = 0
+        self._chunks_lock = threading.Lock()
 
     def _callback(self, indata, frames, time_info, status):
         if self._recording:
-            self._chunks.append(indata[:, 0].copy())  # mono
+            mono = indata[:, 0].copy()
+            with self._chunks_lock:
+                self._chunks.append(mono)
+
+    def pop_new(self) -> np.ndarray:
+        """Return audio appended since the last call. Non-destructive — the
+        full buffer remains intact and is returned in full by stop().
+
+        Used by the streaming transcriber's polling loop.
+        """
+        with self._chunks_lock:
+            start = self._pop_cursor
+            new_chunks = self._chunks[start:]
+            self._pop_cursor = len(self._chunks)
+        if not new_chunks:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(new_chunks)
 
     def _candidate_devices(self):
         """Return all input devices that *could* accept a stream, ordered by
@@ -75,7 +97,9 @@ class Recorder:
                 pass
             self._stream = None
 
-        self._chunks = []
+        with self._chunks_lock:
+            self._chunks = []
+            self._pop_cursor = 0
         self._recording = True
 
         last_error = None
@@ -118,6 +142,8 @@ class Recorder:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        if not self._chunks:
+        with self._chunks_lock:
+            chunks_snapshot = list(self._chunks)
+        if not chunks_snapshot:
             return np.array([], dtype=np.float32)
-        return np.concatenate(self._chunks)
+        return np.concatenate(chunks_snapshot)

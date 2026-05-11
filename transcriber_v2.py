@@ -11,15 +11,44 @@ import numpy as np
 class TranscriberV2:
     """Whisper transcriber with voice profile support."""
 
-    # Hallucination tokens to filter
+    # Hallucination tokens to filter — whisper's silence-fillers on quiet clips.
     JUNK = {
         "[BLANK_AUDIO]", "[silence]", "(silence)", "[music]", "(music)",
-        "[applause]", "[laughter]", "you", "Thank you.", "Thanks for watching!",
+        "[applause]", "[laughter]", "you", "You.",
+        "Thank you.", "Thanks for watching!", "Thanks for watching.",
+        ". Thank you.", "Bye.", "Bye!", ". Bye.",
+        "So.", ". So.", ".",
     }
 
     def __init__(self, model_path="models/ggml-base.en.bin"):
         self.model = Model(model_path, n_threads=4)
         self._vocabulary: list[str] = []  # learned user vocabulary for initial_prompt
+        # Default language behavior:
+        # - "auto": Whisper detects per clip (multilingual model)
+        # - "en"/"de"/...: pinned language
+        # Older configs set to None or absent → falls back to "auto".
+        self.language: str = "auto"
+
+    def set_language(self, lang: str | None) -> None:
+        """Set the language hint. Accepts ISO codes ('en','de','es',...),
+        'auto' for per-clip detection, or None (treated as 'auto').
+        """
+        if not lang:
+            self.language = "auto"
+        else:
+            self.language = lang.lower()
+
+    def detect_language(self, audio: np.ndarray) -> tuple[str, float]:
+        """Run Whisper's language ID on a clip. Returns (code, probability).
+        Falls back to ('en', 0.0) on error.
+        """
+        try:
+            out = self.model.auto_detect_language(audio)
+            code = out[0][0]
+            prob = float(out[0][1])
+            return (code, prob)
+        except Exception:
+            return ("en", 0.0)
 
     def set_vocabulary(self, words: list[str]):
         """Set user vocabulary to improve recognition accuracy.
@@ -33,12 +62,18 @@ class TranscriberV2:
         clean = [w for w in self._vocabulary if w.strip()]
         self._prompt = "Words I use: " + " ".join(clean) if clean else ""  # cap to avoid prompt overflow
 
+    @property
+    def base_prompt(self) -> str:
+        """The user-vocabulary prompt — exposed so the streaming pipeline can
+        prefix it onto chunk-level prompts."""
+        return getattr(self, "_prompt", "") or ""
+
     def transcribe(self, audio: np.ndarray) -> str:
         """Simple transcription — backward compatible with v1."""
         result = self.transcribe_rich(audio)
         return result["text"]
 
-    def transcribe_rich(self, audio: np.ndarray) -> dict:
+    def transcribe_rich(self, audio: np.ndarray, beam_size: int = 0) -> dict:
         """Rich transcription with confidence, timing, and diagnostics.
 
         Returns:
@@ -62,16 +97,32 @@ class TranscriberV2:
         prompt = getattr(self, "_prompt", "")
 
         # Transcribe with enhanced parameters.
-        # language='en' anchors the multilingual model to English while still
-        # letting it pick up German proper nouns mixed in (Berlin, Tor, etc.).
-        # Without this hint, the model can drift to German on ambiguous clips.
-        params = {
+        # Language behavior:
+        # - self.language == "auto"  →  run detect_language first, then
+        #   transcribe in the detected language (preserves user's actual words).
+        # - self.language == ISO code → pin to that language (no detection).
+        # The old behavior was hard-pinned to 'en' which caused non-English
+        # dictation to be silently translated; auto-detect fixes that.
+        lang = self.language or "auto"
+        detected: tuple[str, float] | None = None
+        if lang == "auto":
+            detected = self.detect_language(audio)
+            lang = detected[0]
+        params: dict = {
             "token_timestamps": True,
             "extract_probability": True,
-            "language": "en",
+            "language": lang,
+            # Tighten silence rejection to cut the "Thanks for watching!" tail.
+            "no_speech_thold": 0.6,
+            "logprob_thold": -1.0,
         }
         if prompt:
             params["initial_prompt"] = prompt
+        # Optional beam search — used by the on-release verifier pass.
+        # beam_size=0 → greedy (fastest), >1 → beam search (slower, more accurate).
+        if beam_size and beam_size > 1:
+            params["beam_search"] = {"beam_size": int(beam_size), "patience": 1.0}
+            params["temperature"] = 0.0
 
         segments = self.model.transcribe(audio, **params)
 
@@ -127,4 +178,5 @@ class TranscriberV2:
             "low_confidence_words": list(set(low_confidence)),
             "duration_ms": duration_ms,
             "words_per_minute": wpm,
+            "detected_language": (detected[0] if detected else self.language),
         }

@@ -5,6 +5,31 @@ import rumps
 import threading
 import os
 import user_fixes
+
+
+def _significantly_different(a: str, b: str) -> bool:
+    """Verifier-pass dissimilarity check. Returns True if the beam-search
+    output is meaningfully different from the streamed output and worth
+    swapping in. Threshold: > 15% normalized word edit distance.
+    """
+    if not a or not b:
+        return bool(a) != bool(b)
+    aw = a.lower().split()
+    bw = b.lower().split()
+    if aw == bw:
+        return False
+    # Cheap Levenshtein at the word level
+    m, n = len(aw), len(bw)
+    if m == 0 or n == 0:
+        return True
+    prev = list(range(n + 1))
+    for i in range(1, m + 1):
+        cur = [i] + [0] * n
+        for j in range(1, n + 1):
+            cost = 0 if aw[i - 1] == bw[j - 1] else 1
+            cur[j] = min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev = cur
+    return prev[n] / max(m, n) > 0.15
 import stats as vox_stats
 import integrator_chat
 from recorder import Recorder
@@ -74,6 +99,13 @@ class VoxType(rumps.App):
         self._vad = None  # lazy-init on first audio (keeps cold-start fast)
         self._current_app: str | None = None  # bundle ID of focused app at recording start
         self._llm_corrector = None  # lazy-init on first use (opt-in, off by default)
+
+        # Streaming transcription state — set on each _start_recording when
+        # streaming_enabled is True. None otherwise.
+        self._streamer = None
+        self._streamer_poll_stop = None
+        self._streamer_poll_thread = None
+        self._recording_start_t = 0.0
 
         # Snippet infrastructure — lazy init embedder to avoid blocking startup
         self.snippet_store = SnippetStore()
@@ -153,6 +185,8 @@ class VoxType(rumps.App):
         print("Loading Whisper model...", flush=True)
         model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
         self.transcriber = TranscriberV2(model_path=model_path)
+        # Honour user-configured input language (default "auto").
+        self.transcriber.set_language(self.cfg.get("input_language", "auto"))
 
         # Bias Whisper toward snippet trigger words + snippet names
         bias_words = {"snippet", "snippets", "overview", "manager", "insert", "paste", "save", "help", "clipboard"}
@@ -227,6 +261,7 @@ class VoxType(rumps.App):
                 self.recorder.stop()  # drain stream & reset PortAudio
             except Exception as e:
                 print(f"  [warn] recorder.stop() during reset failed: {e}", flush=True)
+            self._teardown_streamer()
             self.recording = False
         # Capture frontmost app before we steal focus — so we know the user's context
         from context import frontmost_app, app_short_name
@@ -243,7 +278,75 @@ class VoxType(rumps.App):
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
+        import time as _time
+        self._recording_start_t = _time.monotonic()
         print(f"Recording... (app={self._current_app or 'unknown'})", flush=True)
+
+        # Streaming transcription: decode chunks in background while user is
+        # speaking, so only the final tail chunk needs decoding on release.
+        # Falls back transparently to single-shot on init failure.
+        if self.cfg.get("streaming_enabled", True):
+            try:
+                self._spawn_streamer()
+            except Exception as e:
+                print(f"  [streaming] init failed, falling back to single-shot: {e}", flush=True)
+                self._streamer = None
+
+    def _spawn_streamer(self) -> None:
+        from streaming_transcriber import StreamingTranscriber
+        vad = self._get_vad()
+        vad = vad if vad else None  # False sentinel -> None
+        self._streamer = StreamingTranscriber(
+            model=self.transcriber.model,
+            vad=vad,
+            sample_rate=self.cfg["sample_rate"],
+            base_prompt=self.transcriber.base_prompt,
+            language=(None if self.cfg.get("input_language", "auto") == "auto"
+                      else self.cfg.get("input_language")),
+            chunk_min_s=2.0,
+            chunk_target_s=4.0,
+            chunk_max_s=7.0,
+            overlap_s=0.6,
+            silence_min_s=0.35,
+        )
+
+        def _on_preview(committed: str, tentative: str) -> None:
+            preview = committed if committed else tentative
+            if preview:
+                snippet = preview[-40:] if len(preview) > 40 else preview
+                self._update_status(f"... {snippet}")
+
+        self._streamer.start(on_preview=_on_preview)
+
+        self._streamer_poll_stop = threading.Event()
+        def _poll_loop():
+            import time as _time
+            while not self._streamer_poll_stop.is_set():
+                try:
+                    new = self.recorder.pop_new()
+                    if len(new):
+                        self._streamer.feed_audio(new)
+                except Exception as e:
+                    print(f"  [streaming] poll error: {e}", flush=True)
+                _time.sleep(0.1)
+        self._streamer_poll_thread = threading.Thread(
+            target=_poll_loop, daemon=True, name="streaming-poller",
+        )
+        self._streamer_poll_thread.start()
+
+    def _teardown_streamer(self) -> None:
+        if self._streamer_poll_stop is not None:
+            self._streamer_poll_stop.set()
+        if self._streamer_poll_thread is not None:
+            self._streamer_poll_thread.join(timeout=1.0)
+        if self._streamer is not None:
+            try:
+                self._streamer.stop()
+            except Exception:
+                pass
+        self._streamer = None
+        self._streamer_poll_stop = None
+        self._streamer_poll_thread = None
 
     def _stop_recording(self):
         if not self.recording:
@@ -258,57 +361,104 @@ class VoxType(rumps.App):
             audio = self.recorder.stop()
         except Exception as e:
             print(f"  [err] recorder.stop() failed: {e}", flush=True)
+            self._teardown_streamer()
             self.title = "\U0001f3a4"
             self._update_status("Idle -- ready")
             return
 
         duration = len(audio) / self.cfg["sample_rate"] if len(audio) else 0
-        min_samples = int(self.cfg["min_audio_seconds"] * self.cfg["sample_rate"])
-        if len(audio) < min_samples:
-            print(f"  [skip] audio too short ({duration:.2f}s < {self.cfg['min_audio_seconds']}s)", flush=True)
-            vox_stats.log_decision("", "skip_short", f"{duration:.2f}s < {self.cfg['min_audio_seconds']}s",
-                                    duration_s=duration)
-            self._flash_skip(f"too short ({duration:.2f}s)")
-            return
+        # Drop the audio-too-short gate when streaming is on — empty chunks
+        # just commit nothing, so there's no skip path needed.
+        if not self.cfg.get("streaming_enabled", True):
+            min_samples = int(self.cfg.get("min_audio_seconds", 0.15) * self.cfg["sample_rate"])
+            if len(audio) < min_samples:
+                print(f"  [skip] audio too short ({duration:.2f}s)", flush=True)
+                vox_stats.log_decision("", "skip_short", f"{duration:.2f}s",
+                                       duration_s=duration)
+                self._flash_skip(f"too short ({duration:.2f}s)")
+                return
 
-        # Speech detection: VAD (Silero) primary, RMS (energy) sanity-check.
-        # Goal — drop silent/keyboard-only clips, never drop real speech.
-        # Silero v5 sometimes false-negatives on quiet/short dictation, so we
-        # require BOTH VAD-says-no AND RMS-says-quiet before skipping.
+        # RMS sanity gate — only catches mic-completely-dead clips. Streaming
+        # makes the VAD-based gate redundant for false negatives, but we still
+        # short-circuit pure-silence recordings so no clip-end hallucinations
+        # ever surface.
         import numpy as _np
         rms = float(_np.sqrt(_np.mean(audio.astype(_np.float32) ** 2))) if len(audio) else 0.0
         min_rms = self.cfg.get("min_rms", 0.003)
-
-        vad = self._get_vad()
-        vad_no_speech = False
-        if vad:  # SileroVAD instance
-            vad_no_speech = not vad.contains_speech(audio, sample_rate=self.cfg["sample_rate"])
-
-        if vad and vad_no_speech and rms < min_rms:
-            # Both VAD AND RMS agree: silence. Skip.
-            print(f"  [skip] silence: VAD=no, rms={rms:.4f} < {min_rms}", flush=True)
-            vox_stats.log_decision("", "skip_no_speech", f"vad+rms<{min_rms:.3f}", duration_s=duration)
-            self._flash_skip("no speech")
-            return
-        if not vad and rms < min_rms:
-            # No VAD available; pure RMS gate.
-            print(f"  [skip] audio too quiet (rms={rms:.4f} < {min_rms})", flush=True)
+        if rms < min_rms and duration < 1.0:
+            print(f"  [skip] dead-mic clip (rms={rms:.4f}, {duration:.2f}s)", flush=True)
             vox_stats.log_decision("", "skip_quiet", f"rms={rms:.4f}", duration_s=duration)
             self._flash_skip("too quiet")
+            self._teardown_streamer()
             return
-        if vad and vad_no_speech:
-            # VAD said no but RMS shows real signal — VAD is wrong, let Whisper try.
-            print(f"  [vad-override] VAD said no but rms={rms:.4f} ≥ {min_rms} — passing through", flush=True)
 
-        # Rich transcription: text + confidence + timing
-        try:
-            rich = self.transcriber.transcribe_rich(audio)
-        except Exception as e:
-            print(f"  [err] transcribe_rich failed: {e}", flush=True)
-            self.title = "\U0001f3a4"
-            self._update_status("Idle -- ready")
-            return
+        # Streaming path: hand the tail audio to the streamer, wait for
+        # finalize. The streamer has been decoding chunks while we recorded,
+        # so finalize() typically blocks only for the last 0.5-2s chunk.
+        rich: dict
+        import time as _time
+        t_decode_start = _time.monotonic()
+        if self._streamer is not None:
+            # Feed any audio popped between the last poll and stop() so the
+            # streamer's view is complete; finalize handles the rest.
+            try:
+                # Make sure the poller stops feeding so finalize() controls the buffer.
+                if self._streamer_poll_stop is not None:
+                    self._streamer_poll_stop.set()
+                if self._streamer_poll_thread is not None:
+                    self._streamer_poll_thread.join(timeout=1.0)
+                # Compute remaining audio not yet given to the streamer:
+                # the streamer's internal buffer has everything we fed; the
+                # full recorded audio is `audio`. Difference = tail.
+                already_fed = self._streamer._audio  # numpy array, owned by streamer
+                tail = audio[len(already_fed):] if len(audio) > len(already_fed) else None
+                rich = self._streamer.finalize(tail_samples=tail)
+            except Exception as e:
+                print(f"  [streaming] finalize failed, falling back to single-shot: {e}", flush=True)
+                try:
+                    rich = self.transcriber.transcribe_rich(audio)
+                except Exception as e2:
+                    print(f"  [err] transcribe_rich fallback also failed: {e2}", flush=True)
+                    self._teardown_streamer()
+                    self.title = "\U0001f3a4"
+                    self._update_status("Idle -- ready")
+                    return
+            finally:
+                self._teardown_streamer()
+        else:
+            try:
+                rich = self.transcriber.transcribe_rich(audio)
+            except Exception as e:
+                print(f"  [err] transcribe_rich failed: {e}", flush=True)
+                self.title = "\U0001f3a4"
+                self._update_status("Idle -- ready")
+                return
+
+        decode_time = _time.monotonic() - t_decode_start
         text = rich["text"]
+        detected = rich.get("detected_language") or self.cfg.get("input_language", "auto")
+        print(f"  [decode] {decode_time*1000:.0f}ms (audio {duration:.2f}s, lang={detected})", flush=True)
+
+        # Verifier pass: if enabled and clip is long enough, re-decode the
+        # full clip with beam search. If verifier disagrees substantially with
+        # the streamed result, take the verifier's output (it's more careful).
+        if (self.cfg.get("verifier_enabled", False)
+                and duration >= self.cfg.get("verifier_min_duration_s", 5.0)
+                and len(audio) > 0):
+            try:
+                t_v = _time.monotonic()
+                beam = int(self.cfg.get("verifier_beam_size", 5))
+                v_rich = self.transcriber.transcribe_rich(audio, beam_size=beam)
+                v_time = _time.monotonic() - t_v
+                v_text = v_rich.get("text", "")
+                if v_text and _significantly_different(text, v_text):
+                    print(f"  [verifier] streamed != beam ({v_time*1000:.0f}ms): taking beam output", flush=True)
+                    text = v_text
+                    rich = v_rich
+                else:
+                    print(f"  [verifier] streamed ≈ beam ({v_time*1000:.0f}ms), keeping streamed", flush=True)
+            except Exception as e:
+                print(f"  [verifier] failed, keeping streamed: {e}", flush=True)
 
         if not text:
             print(f"  [skip] whisper returned empty text (audio {duration:.2f}s)", flush=True)
