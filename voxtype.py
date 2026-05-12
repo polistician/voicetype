@@ -303,10 +303,12 @@ class VoxType(rumps.App):
             base_prompt=self.transcriber.base_prompt,
             language=(None if self.cfg.get("input_language", "auto") == "auto"
                       else self.cfg.get("input_language")),
-            chunk_min_s=2.0,
-            chunk_target_s=4.0,
-            chunk_max_s=7.0,
-            overlap_s=0.6,
+            # Larger chunks → more context per decode → fewer hallucinations.
+            # Tuned against the synthetic-speech bench: 5s target, 9s cap.
+            chunk_min_s=3.0,
+            chunk_target_s=5.0,
+            chunk_max_s=9.0,
+            overlap_s=0.8,
             silence_min_s=0.35,
         )
 

@@ -19,12 +19,15 @@ DEFAULT_CONFIG = {
     # For an M4 Pro with large-v3-turbo this cuts perceived latency by ~10×
     # on long clips with no accuracy regression (prompt carryover + LA2).
     "streaming_enabled": True,
-    # Beam-search verifier on release. After streaming finishes, optionally
-    # re-decode the entire clip with beam search and pick whichever output
-    # has higher confidence. Adds ~clip_duration × 0.05 latency for ≤2 pp WER
-    # improvement on clips ≥ 5s. Default off until benchmarked on your hardware.
+    # Beam-search verifier on release. Re-decodes the entire clip with beam
+    # search and swaps in that result when it disagrees substantially with
+    # the streamed text. Default OFF because the streaming path (with
+    # overlap-merge + phrase-repeat dedup) now matches or beats offline
+    # accuracy on English (benchmarked 0–8% WER vs 7–11% offline) and the
+    # verifier doubles latency. Flip on for paranoid mode or when accuracy
+    # in the target language is unstable.
     "verifier_enabled": False,
-    "verifier_min_duration_s": 5.0,
+    "verifier_min_duration_s": 8.0,
     "verifier_beam_size": 5,
     # When True, the Fix surface falls back to `claude -p` for free-text
     # descriptions the regex parser can't handle. Uses the user's existing

@@ -150,6 +150,48 @@ _JUNK = {
 }
 
 
+def _dedupe_phrase_repeats(text: str, max_phrase: int = 8) -> str:
+    """Catch and remove immediately-repeated multi-word phrases.
+
+    Whisper sometimes emits ". This is a longer-term care system. This is a
+    longer-term care system." at chunk boundaries — a hallucinated phrase
+    repeated verbatim. Drop the second occurrence.
+
+    Scans for runs of length 2..max_phrase words that repeat back-to-back
+    (allowing one word of punctuation drift). Removes only adjacent
+    duplicates; legitimate repetition with intervening words is preserved.
+    """
+    if not text:
+        return text
+    words = text.split()
+    if len(words) < 4:
+        return text
+
+    def norm(w: str) -> str:
+        return w.strip(".,!?;:'\"()[]{}").lower()
+
+    norm_words = [norm(w) for w in words]
+    out: list[int] = list(range(len(words)))  # indices to keep
+    i = 0
+    while i < len(words):
+        removed = False
+        # Look for the longest k-gram starting at i that repeats at i+k
+        for k in range(max_phrase, 1, -1):
+            if i + 2 * k > len(words):
+                continue
+            if norm_words[i : i + k] == norm_words[i + k : i + 2 * k]:
+                # Drop the second occurrence
+                out = out[: out.index(i + k)] + out[out.index(i + 2 * k) :] if (i + 2 * k) in out else out
+                # Rebuild norm_words/words view by skipping
+                del words[i + k : i + 2 * k]
+                del norm_words[i + k : i + 2 * k]
+                removed = True
+                break
+        if not removed:
+            i += 1
+    return " ".join(words)
+
+
 class StreamingTranscriber:
     """Background streaming Whisper with VAD-cut chunking and LocalAgreement-2.
 
@@ -409,7 +451,13 @@ class StreamingTranscriber:
     # ── decoder ────────────────────────────────────────────────────────────
 
     def _decoder_loop(self) -> None:
-        prev_chunk_text = ""
+        # Each chunk's audio overlaps the previous by `overlap_s`. We rely on
+        # `_word_overlap_merge` to deduplicate the seam — that's robust even
+        # when chunks disagree on exact wording (it finds the longest matching
+        # boundary, falls back to space-join only on total disagreement).
+        # We tried LocalAgreement-2 as a primary commit policy but its
+        # "no agreement" branch duplicated the overlap region, blowing up WER
+        # on long-form clips. Overlap-merge alone is simpler and more robust.
         while self._running:
             try:
                 idx, audio, is_final = self._chunk_queue.get(timeout=0.1)
@@ -430,41 +478,34 @@ class StreamingTranscriber:
                 print(f"[streaming] decode chunk {idx} failed: {e}", flush=True)
                 continue
 
-            # Strip hallucinations
             text = self._scrub_junk(text)
-
             if not text:
-                # Empty chunk — don't disturb commit state, just record telemetry.
                 continue
 
-            # LocalAgreement-2: commit anything that matches between prev_chunk and this
-            if prev_chunk_text:
-                # Merge previous chunk's text into committed using overlap dedup
-                # so the LA2 reconciliation operates on the *just-emerged* tentative.
-                pass
-
-            if not prev_chunk_text:
-                # First non-empty chunk → tentative; nothing yet to agree with.
-                self._pending_chunk_text = text
-                prev_chunk_text = text
+            # Merge: overlap-dedupe against the rolling committed text.
+            # When this chunk's audio overlaps the previous chunk's tail
+            # (by `overlap_s`), Whisper's transcription of this chunk's first
+            # words should match the committed text's last words. The merge
+            # finds and trims that overlap.
+            if self._committed_text:
+                merged = _word_overlap_merge(self._committed_text, text)
             else:
-                # Reconcile: prev_chunk_text is the previous tentative. The
-                # overlap zone in this chunk's audio was the tail of the
-                # previous chunk's audio; agreement = commit.
-                committed_inc, new_tentative = _local_agreement_2(prev_chunk_text, text)
-                # `committed_inc` includes prev_chunk_text up through the agreement
-                # plus the agreed words from this chunk. Merge into rolling committed
-                # by overlap-trimming against existing committed.
-                self._committed_text = _word_overlap_merge(self._committed_text, committed_inc)
-                self._pending_chunk_text = new_tentative
-                prev_chunk_text = new_tentative
+                merged = text
+
+            # Catch hallucinated phrase duplicates — Whisper sometimes emits a
+            # phrase twice on chunk boundaries (e.g. "the lazy dog the lazy dog").
+            merged = _dedupe_phrase_repeats(merged)
+            self._committed_text = merged
+            # Tentative is empty under the overlap-merge regime — everything
+            # in self._committed_text is the current best estimate. (No need
+            # to track LA2 tentative anymore.)
+            self._pending_chunk_text = ""
 
             # Accumulate telemetry
             self._all_segments.extend(segments)
             self._all_probs.extend(probs)
             self._low_confidence.extend(low_conf)
 
-            # Emit preview
             if self._on_preview is not None:
                 try:
                     self._on_preview(self._committed_text, self._pending_chunk_text)
