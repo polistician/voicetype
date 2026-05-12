@@ -48,3 +48,12 @@ VoiceType.app/
 
 # Local config you don't want to publish
 .env
+
+# WhisperKit Swift Package build artifacts + downloaded CoreML model bundle.
+# Source files (Package.swift + Sources/) ARE tracked; only the .build dir
+# and the model itself are too big / regenerable to commit.
+build/whisperkit-helper/.build/
+build/whisperkit-helper/.swiftpm/
+build/whisperkit-helper/Package.resolved
+models/whisperkit/
+whisperkit_helper

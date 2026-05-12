@@ -247,9 +247,11 @@ class VoxType(rumps.App):
         if backend_name == "whisperkit":
             try:
                 from whisperkit_backend import WhisperKitBackend  # lazy: optional dep
+                # WhisperKit repo uses underscore between v3 and turbo, not
+                # hyphen. The folder name must match the repo layout exactly.
                 wk_model_dir = os.path.join(
                     self.cfg["model_dir"], "whisperkit",
-                    "openai_whisper-large-v3-turbo",
+                    "openai_whisper-large-v3_turbo",
                 )
                 self.transcriber = WhisperKitBackend(model_path=wk_model_dir)
                 self.transcriber.load()
