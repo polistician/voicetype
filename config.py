@@ -14,6 +14,15 @@ DEFAULT_CONFIG = {
     # The old "language=en" hard-pin caused non-English dictation to be
     # silently translated; "auto" preserves the user's actual words.
     "input_language": "auto",
+    # Transcriber backend selection.
+    # "auto"        — pick_default_backend resolves: today this is whispercpp
+    # "whispercpp"  — pywhispercpp on Metal (fastest on M-series)
+    # "whisperkit"  — WhisperKit on Apple Neural Engine. Slower per-call than
+    #                 whisper.cpp on M-series, but dramatically more accurate
+    #                 on multilingual (German/Spanish/French) and produces
+    #                 proper capitalization + punctuation. Worth it if your
+    #                 dictation is mostly non-English.
+    "transcriber_backend": "auto",
     # Streaming transcription: decode chunks in the background while the user
     # is still speaking, so only the final tail needs decoding on release.
     # For an M4 Pro with large-v3-turbo this cuts perceived latency by ~10×

@@ -18,10 +18,23 @@ if os.path.isfile(os.path.join(MODELS_DIR, DEFAULT_MODEL)):
 if os.path.isfile(os.path.join(MODELS_DIR, "silero_vad.onnx")):
     model_files.append((os.path.join(MODELS_DIR, "silero_vad.onnx"), "models"))
 
+# Bundle WhisperKit CoreML model bundle (~1.5 GB compressed in DMG).
+# Walks the directory tree because each .mlmodelc is itself a directory
+# of weights + metadata, and PyInstaller needs each leaf file listed.
+WHISPERKIT_MODEL = os.path.join(MODELS_DIR, "whisperkit", "openai_whisper-large-v3_turbo")
+if os.path.isdir(WHISPERKIT_MODEL):
+    for root, _, files in os.walk(WHISPERKIT_MODEL):
+        rel_root = os.path.relpath(root, MODELS_DIR)
+        for fn in files:
+            model_files.append(
+                (os.path.join(root, fn), os.path.join("models", rel_root))
+            )
+
 # Compiled Swift helpers — only include if they exist
 swift_helpers = []
 for h in ["hotkey_helper", "paste_helper", "snippet_overlay",
-          "settings_window", "onboarding", "keys_helper"]:
+          "settings_window", "onboarding", "keys_helper",
+          "whisperkit_helper"]:
     p = os.path.join(HOME, h)
     if os.path.exists(p):
         swift_helpers.append((p, "."))
@@ -49,6 +62,10 @@ a = Analysis(
         "vad",      # voxtype.py: _get_vad -> from vad import SileroVAD
         "integrator_chat",  # voxtype.py: line 9 top-level import
         "streaming_transcriber",  # voxtype.py: _spawn_streamer -> lazy import
+        # v0.13 backend abstraction — lazy imported via pick_default_backend
+        "transcriber_backend",
+        "whisper_cpp_backend",
+        "whisperkit_backend",
     ],
     hookspath=[],
     runtime_hooks=[],

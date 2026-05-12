@@ -145,20 +145,24 @@ def pick_default_backend(cfg: dict[str, Any]) -> str:
     Resolution order:
       1. ``cfg["transcriber_backend"]`` if set to a concrete name
          (``"whispercpp"`` / ``"whisperkit"`` / ...) — honor the override.
-      2. ``"whisperkit"`` on Apple Silicon (arm64), iff the helper binary
-         exists in the bundle.
-      3. ``"whispercpp"`` everywhere else.
+      2. ``"whispercpp"`` as the universal default.
 
-    The helper-binary existence check is in ``_whisperkit_available()`` so
-    voxtype.py doesn't have to reach into the helper layout.
+    Note: in earlier drafts of the spec we planned to default to WhisperKit
+    on Apple Silicon. Bench results revealed whisper.cpp's Metal path is
+    actually faster than WhisperKit's ANE path on M-series for our chunked
+    streaming workload (~0.06 RTF vs ~0.2 RTF). WhisperKit wins decisively
+    on accuracy — especially multilingual (perfect German vs whisper.cpp's
+    "sprache sprach erkennung" chunk-boundary stutter) — so it's exposed
+    as opt-in via Settings for users who care about quality over the last
+    300-500 ms of perceived wait.
+
+    Users flip ``cfg["transcriber_backend"] = "whisperkit"`` via:
+      - The menubar Settings → "High-accuracy mode" toggle (v0.13+)
+      - Or directly in ~/.voicetype/config.json
     """
     explicit = (cfg.get("transcriber_backend") or "auto").strip().lower()
     if explicit not in {"auto", ""}:
         return explicit
-
-    # Auto: pick the best available
-    if platform.machine() == "arm64" and _whisperkit_available():
-        return "whisperkit"
     return "whispercpp"
 
 
