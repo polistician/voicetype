@@ -532,17 +532,33 @@ class StreamingTranscriber:
         initial_prompt = "  ".join(prompt_parts) if prompt_parts else ""
 
         # Language: detect on first chunk if not pinned, else use locked.
+        # Whisper's lang_id has a strong English bias on short clips, so we
+        # peek into the full audio buffer (up to 12s) for the detect pass
+        # instead of just this chunk. That gives the model more signal and
+        # cuts the false-en-detection rate on German/Spanish/etc.
         lang = self.locked_language
         if lang is None and idx == 0:
             try:
-                # auto_detect_language returns ((code, prob), all_probs)
-                detect_out = self.model.auto_detect_language(audio, n_threads=self.n_threads)
+                detect_audio = audio
+                with self._audio_lock:
+                    buf_len = len(self._audio)
+                    if buf_len > len(audio):
+                        # Use up to 12s of buffered audio (auto_detect_language
+                        # only looks at the first 30 mel frames anyway, but
+                        # giving it the full available signal helps the
+                        # encoder produce a stable hidden state).
+                        end = min(buf_len, self.sample_rate * 12)
+                        detect_audio = self._audio[:end]
+                detect_out = self.model.auto_detect_language(
+                    detect_audio, n_threads=self.n_threads,
+                )
                 code = detect_out[0][0] if isinstance(detect_out, tuple) else None
                 prob = detect_out[0][1] if isinstance(detect_out, tuple) else 0
                 if code:
                     self.locked_language = code
                     lang = code
-                    print(f"[streaming] detected language: {code} (p={float(prob):.2f})", flush=True)
+                    print(f"[streaming] detected language: {code} (p={float(prob):.2f}, "
+                          f"on {len(detect_audio)/self.sample_rate:.1f}s)", flush=True)
             except Exception as e:
                 print(f"[streaming] language detect failed, falling back to 'en': {e}", flush=True)
                 self.locked_language = "en"

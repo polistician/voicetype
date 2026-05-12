@@ -57,13 +57,16 @@ class VoxType(rumps.App):
         self._status_item = rumps.MenuItem("Status: Idle")
         self._lang_menu = rumps.MenuItem("Output Language")
         self._build_lang_menu()
+        self._input_lang_menu = rumps.MenuItem("Input Language")
+        self._build_input_lang_menu()
 
         self._update_item = rumps.MenuItem("Check for Updates…", callback=self._on_update_click)
         self._settings_item = rumps.MenuItem("Settings…", callback=self._on_settings_click)
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
         self.menu = [
-            self._status_item, None, self._lang_menu, None,
+            self._status_item, None,
+            self._input_lang_menu, self._lang_menu, None,
             f"Model: {self.cfg['model']}", None,
             self._update_item,
             self._settings_item,
@@ -154,6 +157,54 @@ class VoxType(rumps.App):
             item = rumps.MenuItem(f"{prefix}{label}", callback=self._on_lang_select)
             item._lang_code = code
             self._lang_menu.add(item)
+
+    # Input language (dictation language). The Whisper model auto-detects
+    # in "Auto" mode; on short or accent-heavy clips this can mis-fire,
+    # so the user can pin to a specific language here.
+    INPUT_LANG_CHOICES = [
+        ("auto", "Auto (detect)"),
+        ("en", "English"),
+        ("de", "German"),
+        ("es", "Spanish"),
+        ("fr", "French"),
+        ("it", "Italian"),
+        ("pt", "Portuguese"),
+        ("ja", "Japanese"),
+        ("zh", "Chinese"),
+    ]
+
+    def _build_input_lang_menu(self):
+        current = (self.cfg.get("input_language", "auto") or "auto").lower()
+        for code, label in self.INPUT_LANG_CHOICES:
+            prefix = "\u2713 " if code == current else "   "
+            item = rumps.MenuItem(f"{prefix}{label}", callback=self._on_input_lang_select)
+            item._input_lang_code = code
+            self._input_lang_menu.add(item)
+
+    def _on_input_lang_select(self, sender):
+        code = sender._input_lang_code
+        self.cfg["input_language"] = code
+        # Persist so the choice survives restarts.
+        try:
+            import json
+            cfg_path = os.path.expanduser("~/.voicetype/config.json")
+            with open(cfg_path) as f:
+                disk = json.load(f)
+            disk["input_language"] = code
+            with open(cfg_path, "w") as f:
+                json.dump(disk, f, indent=2)
+        except Exception as e:
+            print(f"[cfg] could not persist input_language: {e}", flush=True)
+        # Reflect in offline transcriber so non-streaming path picks it up too.
+        if getattr(self, "transcriber", None) is not None:
+            self.transcriber.set_language(code)
+        # Update checkmarks
+        for item in self._input_lang_menu.values():
+            ic = getattr(item, "_input_lang_code", None)
+            if ic:
+                label = dict(self.INPUT_LANG_CHOICES).get(ic, ic)
+                item.title = f"\u2713 {label}" if ic == code else f"   {label}"
+        print(f"Input language: {code}", flush=True)
 
     def _on_settings_click(self, _sender):
         """Open the Settings window via the SettingsBridge."""

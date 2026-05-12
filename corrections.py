@@ -136,10 +136,12 @@ def _edit_distance_1(a: str, b: str) -> bool:
 
 
 # Common known corrections for domain vocabulary
-# These are seeded once and can be overridden by user corrections
+# Seeded once; user corrections override.
+# Note: the old "fox -> vox" / "fox type -> VoxType" defaults were removed
+# when the app was renamed VoxType → VoiceType. They were causing the
+# canonical "the quick brown fox" test to become "the quick brown vox".
 _DOMAIN_DEFAULTS = {
-    "fox": "vox",
-    "fox type": "VoxType",
+    "voice type": "VoiceType",
     "soma hook": "SOMA hook",
     "in gram": "engram",
     "n gram": "engram",
