@@ -18,17 +18,14 @@ if os.path.isfile(os.path.join(MODELS_DIR, DEFAULT_MODEL)):
 if os.path.isfile(os.path.join(MODELS_DIR, "silero_vad.onnx")):
     model_files.append((os.path.join(MODELS_DIR, "silero_vad.onnx"), "models"))
 
-# Bundle WhisperKit CoreML model bundle (~1.5 GB compressed in DMG).
-# Walks the directory tree because each .mlmodelc is itself a directory
-# of weights + metadata, and PyInstaller needs each leaf file listed.
-WHISPERKIT_MODEL = os.path.join(MODELS_DIR, "whisperkit", "openai_whisper-large-v3_turbo")
-if os.path.isdir(WHISPERKIT_MODEL):
-    for root, _, files in os.walk(WHISPERKIT_MODEL):
-        rel_root = os.path.relpath(root, MODELS_DIR)
-        for fn in files:
-            model_files.append(
-                (os.path.join(root, fn), os.path.join("models", rel_root))
-            )
+# NOTE: WhisperKit's CoreML model bundle is NOT shipped with the DMG.
+# At ~3 GB on disk (~1.5 GB compressed) it would push the DMG past
+# GitHub's 2 GB per-file release-asset limit when combined with whisper.cpp.
+# When a user enables High-Accuracy Mode in Settings, the app downloads
+# the model on demand from huggingface.co/argmaxinc/whisperkit-coreml
+# into ~/Library/Application Support/VoiceType/models/whisperkit/.
+# whisperkit_backend.py + WhisperKit Swift Helper still ship; only the
+# weights are deferred. See docs/SPEC-v0.13-whisperkit.md § 5.3.
 
 # Compiled Swift helpers — only include if they exist
 swift_helpers = []
