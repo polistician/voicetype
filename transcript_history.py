@@ -29,5 +29,11 @@ class History:
         """Most-recent-first list of entries."""
         return list(reversed(self._buf))
 
+    def most_recent(self) -> str | None:
+        """Just the most recent transcript text, or None when buffer empty."""
+        if not self._buf:
+            return None
+        return self._buf[-1].text
+
     def clear(self) -> None:
         self._buf.clear()

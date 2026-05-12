@@ -31,7 +31,8 @@ if os.path.isfile(os.path.join(MODELS_DIR, "silero_vad.onnx")):
 swift_helpers = []
 for h in ["hotkey_helper", "paste_helper", "snippet_overlay",
           "settings_window", "onboarding", "keys_helper",
-          "whisperkit_helper"]:
+          "whisperkit_helper",
+          "vocabulary_window", "quickfix_bar"]:
     p = os.path.join(HOME, h)
     if os.path.exists(p):
         swift_helpers.append((p, "."))
@@ -63,6 +64,10 @@ a = Analysis(
         "transcriber_backend",
         "whisper_cpp_backend",
         "whisperkit_backend",
+        # v0.13.1 vocabulary system — lazy imported via menubar/hotkey
+        "vocabulary",
+        "vocabulary_bridge",
+        "quickfix_bridge",
     ],
     hookspath=[],
     runtime_hooks=[],

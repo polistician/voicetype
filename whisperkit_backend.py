@@ -162,12 +162,18 @@ class WhisperKitBackend:
                 # set_lang is best-effort; the per-call language overrides anyway.
                 pass
 
-    def set_vocabulary(self, words: list[str]) -> None:
+    def set_vocabulary(
+        self, words: list[str], *, prefix_sentence: str = ""
+    ) -> None:
+        """See WhisperCppBackend.set_vocabulary for the prefix_sentence rationale."""
         self._vocabulary = list(words)[:50]
         clean = [w for w in self._vocabulary if w.strip()]
-        self._prompt = (
-            "Words I use: " + " ".join(clean) if clean else ""
-        )
+        parts: list[str] = []
+        if prefix_sentence:
+            parts.append(prefix_sentence.strip())
+        if clean:
+            parts.append("Words I use: " + " ".join(clean))
+        self._prompt = " ".join(parts)
         if self.is_loaded():
             try:
                 self._call({"op": "set_vocab", "words": self._vocabulary},

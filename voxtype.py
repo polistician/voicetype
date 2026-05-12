@@ -38,6 +38,7 @@ from whisper_cpp_backend import WhisperCppBackend
 from translator import Translator
 from paster import Paster
 from voice_profile import update as update_profile, get_whisper_prompt, get_whisper_prompt_for_app
+import vocabulary as _vocab
 from corrections import apply_corrections, seed_defaults, auto_learn_corrections
 from hotkey import HotkeyListener
 from config import load_config, save_default_config, LANGUAGES
@@ -63,6 +64,7 @@ class VoxType(rumps.App):
 
         self._update_item = rumps.MenuItem("Check for Updates…", callback=self._on_update_click)
         self._settings_item = rumps.MenuItem("Settings…", callback=self._on_settings_click)
+        self._vocab_item = rumps.MenuItem("Vocabulary…", callback=self._on_vocab_click)
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
         self.menu = [
@@ -71,6 +73,7 @@ class VoxType(rumps.App):
             f"Model: {self.cfg['model']}", None,
             self._update_item,
             self._settings_item,
+            self._vocab_item,
             self._help_item, self._stats_item,
         ]
 
@@ -94,6 +97,7 @@ class VoxType(rumps.App):
             on_stop=self._stop_recording,
             on_translate=self._translate_clipboard,
             on_open_overlay=self._open_overlay,
+            on_open_quick_fix=self._on_open_quick_fix,
         )
         self.hotkey.start()
 
@@ -215,6 +219,54 @@ class VoxType(rumps.App):
             self.settings.start()
         self.settings.open_window()
 
+    def _on_vocab_click(self, _sender):
+        """Open the Vocabulary panel via the VocabularyBridge."""
+        if not hasattr(self, "vocab_bridge"):
+            from vocabulary_bridge import VocabularyBridge
+            self.vocab_bridge = VocabularyBridge(
+                on_vocab_changed=self._on_vocab_changed,
+            )
+            if not self.vocab_bridge.start():
+                self.vocab_bridge = None
+                print("[vocab] helper not available", flush=True)
+                return
+        self.vocab_bridge.open_window()
+
+    def _on_vocab_changed(self) -> None:
+        """User edited the vocab store — re-prime Whisper's prompt."""
+        self._refresh_whisper_vocab(app=self._current_app)
+        try:
+            n_active = len(_vocab.list_active())
+            print(f"[vocab] reloaded — {n_active} active words", flush=True)
+        except Exception:
+            pass
+
+    def _on_open_quick_fix(self) -> None:
+        """⌥⇧V handler — open the Quick Fix bar with the last transcript.
+
+        If the user has no recent dictation history, silently no-ops so
+        the keypress doesn't spawn an empty window.
+        """
+        last = self.transcript_history.most_recent() if hasattr(
+            self, "transcript_history") else None
+        if not last:
+            print("[quickfix] no recent transcript to fix", flush=True)
+            return
+        if not hasattr(self, "quickfix_bridge"):
+            try:
+                from quickfix_bridge import QuickFixBridge
+                self.quickfix_bridge = QuickFixBridge(
+                    on_fix_saved=self._on_vocab_changed,
+                )
+                if not self.quickfix_bridge.start():
+                    self.quickfix_bridge = None
+                    print("[quickfix] helper not available", flush=True)
+                    return
+            except Exception as e:
+                print(f"[quickfix] init failed: {e}", flush=True)
+                return
+        self.quickfix_bridge.open_with(last)
+
     def _on_setting_changed(self, key, value):
         """Hot-reload a config setting toggled in Settings.
         Mutating self.cfg is safe: dict-entry swaps are atomic in CPython
@@ -280,8 +332,14 @@ class VoxType(rumps.App):
         prompt = get_whisper_prompt()
         existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
         merged = sorted(existing | bias_words)
-        self.transcriber.set_vocabulary(merged)
-        print(f"Loaded {len(merged)} vocabulary words (including snippet triggers)", flush=True)
+        # vocabulary.json — user's explicit niche vocab. Prepended as a
+        # natural sentence ("I often mention X, Y, and Z.") because Whisper
+        # biases more reliably toward sentence-form prompts than lists.
+        vocab_sentence = _vocab.get_prompt()
+        self.transcriber.set_vocabulary(merged, prefix_sentence=vocab_sentence)
+        n_explicit = len(_vocab.list_active())
+        print(f"Loaded {len(merged)} vocabulary words "
+              f"(snippet triggers + profile) + {n_explicit} explicit vocab", flush=True)
 
         self._model_loaded.set()
         print("Model loaded!", flush=True)
@@ -298,7 +356,10 @@ class VoxType(rumps.App):
                     bias_words.add(tok.lower())
         prompt = get_whisper_prompt_for_app(app) if app else get_whisper_prompt()
         existing = set(prompt.replace("Words I use: ", "").split()) if prompt else set()
-        self.transcriber.set_vocabulary(sorted(existing | bias_words))
+        vocab_sentence = _vocab.get_prompt()
+        self.transcriber.set_vocabulary(
+            sorted(existing | bias_words), prefix_sentence=vocab_sentence,
+        )
 
     def _update_status(self, status):
         self._status_item.title = f"Status: {status}"
@@ -582,6 +643,10 @@ class VoxType(rumps.App):
                 lc = rich.get("low_confidence_words", [])
                 if lc:
                     print(f"  [profile] conf={conf:.2f}, unclear: {', '.join(lc[:3])}", flush=True)
+                # Vocab seen-counter: bump usage_count for any vocabulary.json
+                # word that appeared in this transcript. Drives the status
+                # transitions new → seen → active surfaced in the UI.
+                _vocab.mark_seen(text.split())
                 self._refresh_whisper_vocab(app=self._current_app)
                 auto_learn_corrections()
             except Exception:

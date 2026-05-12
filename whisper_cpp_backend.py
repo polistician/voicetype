@@ -81,14 +81,27 @@ class WhisperCppBackend:
         else:
             self.language = code.lower()
 
-    def set_vocabulary(self, words: list[str]) -> None:
-        # Cap to 50 words. Whisper's prompt budget is ~224 tokens; 50 short
-        # words fits comfortably and leaves room for chunk-carryover.
+    def set_vocabulary(
+        self, words: list[str], *, prefix_sentence: str = ""
+    ) -> None:
+        """Set the vocabulary prompt.
+
+        Args:
+            words: passive vocab (snippet triggers + voice_profile top-200).
+                Joined as a "Words I use: …" bare list.
+            prefix_sentence: optional natural-sentence preamble — the user's
+                explicit ``vocabulary.json``. Prepended verbatim because
+                Whisper biases more reliably toward sentence-form prompts
+                than lists.
+        """
         self._vocabulary = list(words)[:50]
         clean = [w for w in self._vocabulary if w.strip()]
-        self._prompt = (
-            "Words I use: " + " ".join(clean) if clean else ""
-        )
+        parts: list[str] = []
+        if prefix_sentence:
+            parts.append(prefix_sentence.strip())
+        if clean:
+            parts.append("Words I use: " + " ".join(clean))
+        self._prompt = " ".join(parts)
 
     @property
     def base_prompt(self) -> str:

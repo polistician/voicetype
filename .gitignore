@@ -36,6 +36,8 @@ onboarding
 settings_window
 snippet_overlay
 voicetype_launcher
+vocabulary_window
+quickfix_bar
 
 # Bundle is a build artifact, not source
 VoxType.app/

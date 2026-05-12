@@ -119,6 +119,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exit(1)
         }
 
+        // Register Option+Shift+V (kVK_ANSI_V = 9) — Quick Fix bar.
+        // Captures the last transcript inline for one-touch vocab + correction.
+        var quickFixKeyRef: EventHotKeyRef?
+        let quickFixKeyID = EventHotKeyID(signature: OSType(0x564F5854), id: 6)
+        let status4 = RegisterEventHotKey(
+            UInt32(kVK_ANSI_V),
+            UInt32(optionKey | shiftKey),
+            quickFixKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &quickFixKeyRef
+        )
+        if status4 != noErr {
+            fputs("WARNING: Option+Shift+V Quick Fix hotkey failed (status: \(status4))\n", stderr)
+        }
+
         fputs("READY\n", stdout)
         fflush(stdout)
 
@@ -156,6 +172,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     // Option+Shift+S — open snippet overlay (fire on press only)
                     if kind == UInt32(kEventHotKeyPressed) {
                         fputs("OPEN_OVERLAY\n", stdout)
+                        fflush(stdout)
+                    }
+                } else if hotKeyID.id == 6 {
+                    // Option+Shift+V — open Quick Fix bar (fire on press only)
+                    if kind == UInt32(kEventHotKeyPressed) {
+                        fputs("OPEN_QUICK_FIX\n", stdout)
                         fflush(stdout)
                     }
                 }

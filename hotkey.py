@@ -11,11 +11,13 @@ HELPER_PATH = _resolve_helper("hotkey_helper")
 
 
 class HotkeyListener:
-    def __init__(self, on_start, on_stop, on_translate=None, on_open_overlay=None):
+    def __init__(self, on_start, on_stop, on_translate=None,
+                 on_open_overlay=None, on_open_quick_fix=None):
         self.on_start = on_start
         self.on_stop = on_stop
         self.on_translate = on_translate
         self.on_open_overlay = on_open_overlay
+        self.on_open_quick_fix = on_open_quick_fix
         self._proc = None
 
     def start(self):
@@ -43,7 +45,7 @@ class HotkeyListener:
         for line in self._proc.stdout:
             line = line.strip()
             if line == "READY":
-                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S)", flush=True)
+                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S, Option+Shift+V)", flush=True)
             elif line == "START":
                 self.on_start()
             elif line == "STOP":
@@ -54,6 +56,9 @@ class HotkeyListener:
             elif line == "OPEN_OVERLAY":
                 if self.on_open_overlay:
                     self.on_open_overlay()
+            elif line == "OPEN_QUICK_FIX":
+                if self.on_open_quick_fix:
+                    self.on_open_quick_fix()
             elif line == "PASTED":
                 print("Paste confirmed", flush=True)
             elif line:
