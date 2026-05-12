@@ -241,10 +241,18 @@ struct WhisperKitHelper {
         }
     }
 
+    /// Emit an event payload, echoing back req.id when present so the
+    /// Python side's per-id dispatch can route to the right inbox.
+    static func emitForReq(_ id: Int?, _ payload: [String: Any]) {
+        var p = payload
+        if let id = id { p["id"] = id }
+        emit(p)
+    }
+
     static func handle(req: Request, state: State) async {
         switch req.op {
         case "ping":
-            emit(["event": "pong"])
+            emitForReq(req.id, ["event": "pong"])
 
         case "load":
             guard let path = req.model_path else {
@@ -253,7 +261,7 @@ struct WhisperKitHelper {
             }
             do {
                 let info = try await state.load(modelPath: path)
-                emit([
+                emitForReq(req.id, [
                     "event": "loaded",
                     "model": info.model,
                     "took_ms": info.tookMs,
@@ -268,11 +276,11 @@ struct WhisperKitHelper {
                 return
             }
             await state.setLanguage(code)
-            emit(["event": "set_lang_ok", "code": code])
+            emitForReq(req.id, ["event": "set_lang_ok", "code": code])
 
         case "set_vocab":
             await state.setVocab(req.words ?? [])
-            emit(["event": "set_vocab_ok"])
+            emitForReq(req.id, ["event": "set_vocab_ok"])
 
         case "detect":
             guard let b64 = req.audio_b64,
@@ -282,9 +290,8 @@ struct WhisperKitHelper {
             }
             do {
                 let r = try await state.detect(audio)
-                emit([
+                emitForReq(req.id, [
                     "event": "detect_result",
-                    "id": req.id as Any,
                     "code": r.code,
                     "prob": Double(r.prob),
                 ])
@@ -309,15 +316,14 @@ struct WhisperKitHelper {
                 )
                 var payload = r
                 payload["event"] = "transcribe_result"
-                if let id = req.id { payload["id"] = id }
-                emit(payload)
+                emitForReq(req.id, payload)
             } catch {
                 emitError(req.id, "transcribe failed: \(error.localizedDescription)")
             }
 
         case "unload":
             await state.unload()
-            emit(["event": "unloaded"])
+            emitForReq(req.id, ["event": "unloaded"])
 
         default:
             emitError(req.id, "unknown op: \(req.op)")
