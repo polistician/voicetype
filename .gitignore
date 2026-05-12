@@ -13,6 +13,12 @@ build/*
 !build/*.json
 !build/*.md
 !build/*.command
+# WhisperKit Swift package source IS tracked; only its compiled .build dir
+# and Package.resolved (re-derived on swift build) are ignored.
+!build/whisperkit-helper/
+build/whisperkit-helper/.build/
+build/whisperkit-helper/.swiftpm/
+build/whisperkit-helper/Package.resolved
 dist/
 *.dmg
 *.dmg.sha256
@@ -49,11 +55,7 @@ VoiceType.app/
 # Local config you don't want to publish
 .env
 
-# WhisperKit Swift Package build artifacts + downloaded CoreML model bundle.
-# Source files (Package.swift + Sources/) ARE tracked; only the .build dir
-# and the model itself are too big / regenerable to commit.
-build/whisperkit-helper/.build/
-build/whisperkit-helper/.swiftpm/
-build/whisperkit-helper/Package.resolved
+# Downloaded WhisperKit CoreML model bundle (~1.5 GB) — bundled into DMG
+# at build time, not source. Compiled helper binary likewise.
 models/whisperkit/
 whisperkit_helper
