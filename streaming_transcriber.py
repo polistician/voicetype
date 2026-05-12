@@ -211,7 +211,7 @@ class StreamingTranscriber:
 
     def __init__(
         self,
-        model,  # pywhispercpp.model.Model instance
+        backend,  # TranscriberBackend (Protocol) — was raw pywhispercpp.Model in v0.12
         vad=None,  # SileroVAD instance or None
         sample_rate: int = 16000,
         base_prompt: str = "",
@@ -223,7 +223,11 @@ class StreamingTranscriber:
         silence_min_s: float = 0.35,
         n_threads: int = 4,
     ):
-        self.model = model
+        # `backend` conforms to transcriber_backend.TranscriberBackend.
+        # In v0.12.x this was the raw whisper.cpp Model; in v0.13 it's an
+        # abstract backend so the pipeline can target WhisperKit (ANE) or
+        # any future model without changing this file.
+        self.backend = backend
         self.vad = vad
         self.sample_rate = sample_rate
         self.base_prompt = base_prompt
@@ -543,17 +547,9 @@ class StreamingTranscriber:
                 with self._audio_lock:
                     buf_len = len(self._audio)
                     if buf_len > len(audio):
-                        # Use up to 12s of buffered audio (auto_detect_language
-                        # only looks at the first 30 mel frames anyway, but
-                        # giving it the full available signal helps the
-                        # encoder produce a stable hidden state).
                         end = min(buf_len, self.sample_rate * 12)
                         detect_audio = self._audio[:end]
-                detect_out = self.model.auto_detect_language(
-                    detect_audio, n_threads=self.n_threads,
-                )
-                code = detect_out[0][0] if isinstance(detect_out, tuple) else None
-                prob = detect_out[0][1] if isinstance(detect_out, tuple) else 0
+                code, prob = self.backend.detect_language(detect_audio)
                 if code:
                     self.locked_language = code
                     lang = code
@@ -566,48 +562,29 @@ class StreamingTranscriber:
         if lang is None:
             lang = "en"
 
-        params: dict = {
-            "language": lang,
-            "n_threads": self.n_threads,
-            "token_timestamps": True,
-            "extract_probability": True,
-            # Tighten silence rejection so end-of-chunk hallucinations are rarer.
-            "no_speech_thold": 0.6,
-            "logprob_thold": -1.0,
-            # Greedy is faster; reserve beam for verifier pass.
-            "temperature": 0.0,
-            "suppress_blank": True,
-        }
-        if initial_prompt:
-            params["initial_prompt"] = initial_prompt
-
-        segments = self.model.transcribe(audio, **params)
-
-        text_parts: list[str] = []
-        seg_out: list[dict] = []
-        probs: list[float] = []
-        low_conf: list[str] = []
-        import math
-        for seg in segments:
-            t = seg.text.strip()
-            if not t or t in _JUNK:
-                continue
-            t0 = int(getattr(seg, "t0", 0))
-            t1 = int(getattr(seg, "t1", 0))
-            raw_prob = getattr(seg, "probability", None)
-            p = float(raw_prob) if raw_prob is not None else None
-            seg_dict = {"text": t, "t0": t0, "t1": t1}
-            if p is not None and not math.isnan(p):
-                seg_dict["probability"] = round(p, 4)
-                probs.append(p)
-                if p < 0.7:
-                    for word in t.split():
-                        clean = word.strip(".,!?;:'\"").lower()
-                        if clean and len(clean) > 1:
-                            low_conf.append(clean)
-            seg_out.append(seg_dict)
-            text_parts.append(t)
-        return (" ".join(text_parts).strip(), seg_out, probs, low_conf)
+        # Run the backend. Each backend may interpret no_speech_thold /
+        # logprob_thold differently; we pass our preferred thresholds and
+        # let the backend translate to its native params.
+        rich = self.backend.transcribe(
+            audio,
+            language=lang,
+            initial_prompt=initial_prompt,
+            beam_size=0,             # streaming chunks: greedy for speed
+            no_speech_thold=0.6,
+            logprob_thold=-1.0,
+        )
+        # Pull the backend-aggregated values directly. v0.12.x duplicated the
+        # segment-processing loop here, which (1) re-applied filters that the
+        # backend had already applied and (2) drifted away from the backend's
+        # canonical text on subtle whitespace/punctuation. Trust the backend.
+        text = rich.get("text", "") or ""
+        seg_out = list(rich.get("segments", []))
+        probs = [
+            float(s["probability"]) for s in seg_out
+            if s.get("probability") is not None
+        ]
+        low_conf = list(rich.get("low_confidence_words", []))
+        return (text, seg_out, probs, low_conf)
 
     # ── helpers ────────────────────────────────────────────────────────────
 

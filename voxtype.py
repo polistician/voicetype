@@ -33,7 +33,8 @@ def _significantly_different(a: str, b: str) -> bool:
 import stats as vox_stats
 import integrator_chat
 from recorder import Recorder
-from transcriber_v2 import TranscriberV2
+from transcriber_backend import pick_default_backend
+from whisper_cpp_backend import WhisperCppBackend
 from translator import Translator
 from paster import Paster
 from voice_profile import update as update_profile, get_whisper_prompt, get_whisper_prompt_for_app
@@ -233,9 +234,38 @@ class VoxType(rumps.App):
         print(f"Output language: {mode}", flush=True)
 
     def _load_model(self):
-        print("Loading Whisper model...", flush=True)
-        model_path = os.path.join(self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin")
-        self.transcriber = TranscriberV2(model_path=model_path)
+        """Pick a TranscriberBackend, load it, and prime vocab biasing.
+
+        Backend selection: ``transcriber_backend`` config key →
+        ``pick_default_backend`` (Apple Silicon + helper available →
+        WhisperKit; else whisper.cpp). If WhisperKit load fails for any
+        reason we fall back to whisper.cpp at runtime — never block the user.
+        """
+        backend_name = pick_default_backend(self.cfg)
+        print(f"Loading transcriber backend: {backend_name}", flush=True)
+
+        if backend_name == "whisperkit":
+            try:
+                from whisperkit_backend import WhisperKitBackend  # lazy: optional dep
+                wk_model_dir = os.path.join(
+                    self.cfg["model_dir"], "whisperkit",
+                    "openai_whisper-large-v3-turbo",
+                )
+                self.transcriber = WhisperKitBackend(model_path=wk_model_dir)
+                self.transcriber.load()
+            except Exception as e:
+                print(f"[backend] WhisperKit load failed ({e}), "
+                      f"falling back to whisper.cpp", flush=True)
+                self.transcriber = None
+                backend_name = "whispercpp"
+
+        if backend_name == "whispercpp" or self.transcriber is None:
+            ggml_path = os.path.join(
+                self.cfg["model_dir"], f"ggml-{self.cfg['model']}.bin",
+            )
+            self.transcriber = WhisperCppBackend(model_path=ggml_path)
+            self.transcriber.load()
+
         # Honour user-configured input language (default "auto").
         self.transcriber.set_language(self.cfg.get("input_language", "auto"))
 
@@ -348,7 +378,7 @@ class VoxType(rumps.App):
         vad = self._get_vad()
         vad = vad if vad else None  # False sentinel -> None
         self._streamer = StreamingTranscriber(
-            model=self.transcriber.model,
+            backend=self.transcriber,
             vad=vad,
             sample_rate=self.cfg["sample_rate"],
             base_prompt=self.transcriber.base_prompt,
@@ -469,9 +499,9 @@ class VoxType(rumps.App):
             except Exception as e:
                 print(f"  [streaming] finalize failed, falling back to single-shot: {e}", flush=True)
                 try:
-                    rich = self.transcriber.transcribe_rich(audio)
+                    rich = self.transcriber.transcribe(audio)
                 except Exception as e2:
-                    print(f"  [err] transcribe_rich fallback also failed: {e2}", flush=True)
+                    print(f"  [err] backend.transcribe fallback also failed: {e2}", flush=True)
                     self._teardown_streamer()
                     self.title = "\U0001f3a4"
                     self._update_status("Idle -- ready")
@@ -480,9 +510,9 @@ class VoxType(rumps.App):
                 self._teardown_streamer()
         else:
             try:
-                rich = self.transcriber.transcribe_rich(audio)
+                rich = self.transcriber.transcribe(audio)
             except Exception as e:
-                print(f"  [err] transcribe_rich failed: {e}", flush=True)
+                print(f"  [err] backend.transcribe failed: {e}", flush=True)
                 self.title = "\U0001f3a4"
                 self._update_status("Idle -- ready")
                 return
@@ -501,7 +531,7 @@ class VoxType(rumps.App):
             try:
                 t_v = _time.monotonic()
                 beam = int(self.cfg.get("verifier_beam_size", 5))
-                v_rich = self.transcriber.transcribe_rich(audio, beam_size=beam)
+                v_rich = self.transcriber.transcribe(audio, beam_size=beam)
                 v_time = _time.monotonic() - t_v
                 v_text = v_rich.get("text", "")
                 if v_text and _significantly_different(text, v_text):
