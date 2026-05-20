@@ -30,7 +30,7 @@
     .then(r => r.ok ? r.json() : null)
     .then(release => {
       if (!release) return;
-      const v = release.tag_name || 'v0.9.1';
+      const v = release.tag_name || 'v0.13.2';
       document.querySelectorAll('[data-latest-version]').forEach(el => el.textContent = v);
 
       const sha = (release.assets || []).find(a => a.name === 'VoiceType.dmg.sha256');
