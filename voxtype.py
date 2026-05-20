@@ -67,6 +67,8 @@ class VoxType(rumps.App):
         self._vocab_item = rumps.MenuItem("Vocabulary…", callback=self._on_vocab_click)
         self._help_item = rumps.MenuItem("Help…", callback=self._on_help_click)
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
+        self._integrator_item = rumps.MenuItem("Connect Integrator…", callback=self._on_integrator_click)
+        self._refresh_integrator_label()
         self.menu = [
             self._status_item, None,
             self._input_lang_menu, self._lang_menu, None,
@@ -74,6 +76,7 @@ class VoxType(rumps.App):
             self._update_item,
             self._settings_item,
             self._vocab_item,
+            self._integrator_item,
             self._help_item, self._stats_item,
         ]
 
@@ -904,6 +907,54 @@ class VoxType(rumps.App):
 
     def _on_help_click(self, _sender):
         self._show_help()
+
+    def _refresh_integrator_label(self):
+        try:
+            st = integrator_chat.status()
+        except Exception:
+            st = {"connected": False}
+        if st.get("connected"):
+            email = st.get("user_email") or "paired"
+            self._integrator_item.title = f"Disconnect Integrator ({email})"
+        else:
+            self._integrator_item.title = "Connect Integrator…"
+
+    def _on_integrator_click(self, _sender):
+        try:
+            st = integrator_chat.status()
+        except Exception:
+            st = {"connected": False}
+
+        if st.get("connected"):
+            resp = rumps.alert(
+                title="Disconnect Integrator?",
+                message="Transcript cleanup will fall back to raw Whisper output until you reconnect.",
+                ok="Disconnect", cancel="Cancel",
+            )
+            if resp == 1:
+                try:
+                    integrator_chat.disconnect()
+                except Exception as e:
+                    rumps.alert("Disconnect failed", str(e))
+                self._refresh_integrator_label()
+            return
+
+        rumps.notification(
+            "Connecting Integrator",
+            "Browser opening for sign-in…",
+            "Approve the request, then return here.",
+        )
+        threading.Thread(target=self._run_integrator_connect, daemon=True).start()
+
+    def _run_integrator_connect(self):
+        try:
+            state = integrator_chat.connect(timeout_s=300)
+            email = state.get("user_email") or "paired"
+            rumps.notification("Integrator connected", "", f"Signed in as {email}.")
+        except Exception as e:
+            rumps.notification("Integrator connect failed", "", str(e))
+        finally:
+            self._refresh_integrator_label()
 
     def _on_overlay_event(self, msg: dict):
         t = msg.get("type")
