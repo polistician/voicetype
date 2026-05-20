@@ -59,10 +59,16 @@ run() {
     if [ "$DRY" = false ]; then "$@"; fi
 }
 
-# 1. Bump VERSION + commit (only if changing)
+# 1. Bump VERSION + sync the site's fallback version string, then commit.
+# site/script.js fetches the live version from the GitHub API at page load,
+# but the HTML carries v$NEW as the fallback so the first paint (and any
+# offline render) reflects reality. release.sh owns keeping it in sync so
+# we never ship a stale fallback again.
 if [ "$CURRENT" != "$NEW" ]; then
     run bash -c "echo $NEW > VERSION"
-    run git add VERSION
+    run sed -i '' -E "s/>v[0-9]+\.[0-9]+\.[0-9]+</>v$NEW</g" site/index.html
+    run sed -i '' -E "s/release.tag_name \|\| 'v[0-9]+\.[0-9]+\.[0-9]+'/release.tag_name || 'v$NEW'/" site/script.js
+    run git add VERSION site/index.html site/script.js
     run git commit -m "release: v$NEW"
 fi
 
