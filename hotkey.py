@@ -12,13 +12,30 @@ HELPER_PATH = _resolve_helper("hotkey_helper")
 
 class HotkeyListener:
     def __init__(self, on_start, on_stop, on_translate=None,
-                 on_open_overlay=None, on_open_quick_fix=None):
+                 on_open_overlay=None, on_open_quick_fix=None,
+                 on_command_mode_start=None, on_command_mode_stop=None):
         self.on_start = on_start
         self.on_stop = on_stop
         self.on_translate = on_translate
         self.on_open_overlay = on_open_overlay
         self.on_open_quick_fix = on_open_quick_fix
+        self.on_command_mode_start = on_command_mode_start
+        self.on_command_mode_stop = on_command_mode_stop
         self._proc = None
+
+    def undo(self):
+        """Send an UNDO signal to the helper — synthesizes ⌘Z in the frontmost app.
+
+        Used by the Tier-1 voice command "undo that" so the user can revert the
+        last paste hands-free. Best-effort: if the helper isn't alive we just
+        drop the request rather than raise (matches the paste() pattern).
+        """
+        if self._proc and self._proc.stdin:
+            try:
+                self._proc.stdin.write("UNDO\n")
+                self._proc.stdin.flush()
+            except Exception:
+                pass
 
     def start(self):
         thread = threading.Thread(target=self._run, daemon=True)
@@ -45,7 +62,7 @@ class HotkeyListener:
         for line in self._proc.stdout:
             line = line.strip()
             if line == "READY":
-                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S, Option+Shift+V)", flush=True)
+                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S, Option+Shift+V, Option+Shift+C)", flush=True)
             elif line == "START":
                 self.on_start()
             elif line == "STOP":
@@ -59,8 +76,14 @@ class HotkeyListener:
             elif line == "OPEN_QUICK_FIX":
                 if self.on_open_quick_fix:
                     self.on_open_quick_fix()
-            elif line == "PASTED":
-                print("Paste confirmed", flush=True)
+            elif line == "COMMAND_MODE_START":
+                if self.on_command_mode_start:
+                    self.on_command_mode_start()
+            elif line == "COMMAND_MODE_STOP":
+                if self.on_command_mode_stop:
+                    self.on_command_mode_stop()
+            elif line in ("PASTED", "UNDONE"):
+                print(f"[hotkey_helper] {line}", flush=True)
             elif line:
                 # Forward anything else (PERMISSIONS, WARNING, etc.) so the user
                 # sees diagnostic info in the VoxType log.

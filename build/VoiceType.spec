@@ -68,6 +68,16 @@ a = Analysis(
         "vocabulary",
         "vocabulary_bridge",
         "quickfix_bridge",
+        # v0.14 cleanup + Command Mode
+        "cleanup_backend",
+        "cleanup_prompts",
+        "mlx_cleanup",
+        # MLX dependencies for local cleanup (Apple Silicon). mlx-lm + huggingface_hub
+        # are imported inside methods to keep cold-start fast on non-MLX users.
+        "mlx",
+        "mlx.core",
+        "mlx_lm",
+        "huggingface_hub",
     ],
     hookspath=[],
     runtime_hooks=[],

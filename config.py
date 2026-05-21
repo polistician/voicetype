@@ -44,18 +44,24 @@ DEFAULT_CONFIG = {
     "use_claude_cli_for_fix": False,
     # If False, clipboard is set but ⌘V is not synthesized — user pastes manually.
     "auto_paste": True,
-    # When True, transcripts are sent to ChatGPT via Integrator for cleanup
-    # (remove "um"s, fix punctuation, restructure rambling) before pasting.
-    # Audio never leaves the machine — only the transcribed text. Default off.
-    # Pair the user's Integrator account first via Settings or
-    # `python -m integrator_chat connect`.
+    # Cleanup backend that post-processes Whisper output before pasting.
+    # Values:
+    #   "off"        — no cleanup; paste raw Whisper text. Default.
+    #   "integrator" — route via Integrator OAuth broker to ChatGPT.
+    #   "groq"       — route via Integrator to Groq Llama 4 (free, ~150ms).
+    #   "local"      — Qwen 3 0.6B via MLX, fully on-device. No network.
+    # Migration: legacy `ai_cleanup_enabled: true` → "integrator", legacy
+    # `use_llm_correction: true` → "local". Old keys are stripped on save.
+    "cleanup_backend": "off",
+    # Hold ⌥⇧C to dictate an editing instruction against the last paste
+    # (e.g. "make it more formal", "turn this into bullets"). The instruction
+    # is sent to the configured cleanup_backend's edit() endpoint.
+    "command_mode_enabled": True,
+    # Tier-1 voice-edit phrases ("scratch that", "new line", "new paragraph",
+    # "undo that") auto-trigger when dictated alone, with no command-mode key.
+    "voice_edit_auto_detect_enabled": True,
+    # Legacy keys (read for migration, stripped on save by save_config):
     "ai_cleanup_enabled": False,
-    # EXPERIMENTAL: LLM post-correction via Phi-3-mini (local, ~2GB model).
-    # When True, downloads Phi-3-mini-Q4 to ~/.voicetype/models/llm/ on first use
-    # and runs it after Whisper + rule-based corrections. Adds ~500ms latency.
-    # Enable in Settings → Experimental, or set directly here.
-    # Requires llama-cpp-python (optional dep, NOT in install.sh):
-    #   pip install llama-cpp-python
     "use_llm_correction": False,
 }
 
@@ -73,13 +79,43 @@ LANGUAGES = {
 CONFIG_PATH = os.path.expanduser("~/.voicetype/config.json")
 
 
+_LEGACY_CLEANUP_KEYS = ("ai_cleanup_enabled", "use_llm_correction")
+
+
+def _migrate_cleanup_backend(user: dict, config: dict) -> None:
+    """Map legacy booleans to the new unified `cleanup_backend` string.
+
+    Runs only when the user's on-disk config has no explicit `cleanup_backend`
+    yet. Legacy keys remain in the in-memory config so any external code
+    still reading them keeps working; save_config() strips them on write.
+    """
+    if "cleanup_backend" in user:
+        return
+    if user.get("use_llm_correction"):
+        config["cleanup_backend"] = "local"
+    elif user.get("ai_cleanup_enabled"):
+        config["cleanup_backend"] = "integrator"
+    else:
+        config["cleanup_backend"] = "off"
+
+
 def load_config() -> dict:
     config = DEFAULT_CONFIG.copy()
+    user: dict = {}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
             user = json.load(f)
         config.update(user)
+    _migrate_cleanup_backend(user, config)
     return config
+
+
+def save_config(cfg: dict) -> None:
+    """Persist config to disk, stripping deprecated keys."""
+    out = {k: v for k, v in cfg.items() if k not in _LEGACY_CLEANUP_KEYS}
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(out, f, indent=2)
 
 
 def save_default_config():

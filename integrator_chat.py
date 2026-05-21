@@ -532,31 +532,52 @@ def chat_json(
 # ── VoiceType-specific helper ──────────────────────────────────────────────
 
 
-_CLEANUP_SYSTEM = (
-    "You clean up dictation transcripts. Given a raw Whisper transcript:\n"
-    "  • Remove disfluencies (um, uh, like, you know, sort of, kind of, so at the start of a thought).\n"
-    "  • Resolve in-speech self-corrections: when the speaker starts a phrase, then\n"
-    "    restarts or rephrases it (e.g. \"correct the number — but the number should be 5\",\n"
-    "    \"go to the — actually open the file\", \"I think we should — let's just ship it\"),\n"
-    "    keep ONLY the final revised version and drop the abandoned false start. Do the\n"
-    "    same for repeated words and stutter-restarts (\"the the file\" → \"the file\").\n"
-    "  • Fix punctuation and capitalization.\n"
-    "  • Restructure obviously rambling sentences into clear ones.\n"
-    "  • Preserve the speaker's intent, tone, and word choice. Never add information\n"
-    "    that wasn't said; never change what the speaker meant — only tighten how it\n"
-    "    was said.\n"
-    "  • Keep technical terms, names, and proper nouns exactly as transcribed.\n"
-    "  • If the input is already clean, return it unchanged.\n"
-    "Reply with ONLY the cleaned text — no preamble, no quotes, no explanation."
-)
+from cleanup_prompts import CLEANUP_SYSTEM as _CLEANUP_SYSTEM, EDIT_SYSTEM as _EDIT_SYSTEM
 
 
-def cleanup(raw_text: str, *, timeout_s: float = 2.0) -> str:
+def _fallback_if_mangled(raw: str, cleaned: str, threshold: float = 0.5) -> str:
+    """Reject LLM hallucinations that diverge too far from the raw transcript.
+
+    Uses token-set ratio so word reordering / casing / punctuation don't trip
+    the guard; only semantic drift (new content, wholly different topic) does.
+    Falls back to raw on rapidfuzz import failure so the cleanup path stays
+    robust on minimal installs.
+    """
+    try:
+        from rapidfuzz import fuzz
+    except Exception:
+        return cleaned
+    r = (raw or "").strip()
+    c = (cleaned or "").strip()
+    if not c:
+        return raw
+    sim = fuzz.token_set_ratio(r, c) / 100.0
+    if sim < threshold:
+        try:
+            import stats as vox_stats
+            vox_stats.increment("cleanup_guardrail_rejected")
+        except Exception:
+            pass
+        return raw
+    return cleaned
+
+
+def _strip_wrapping_quotes(s: str) -> str:
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        return s[1:-1].strip()
+    return s
+
+
+def cleanup(raw_text: str, *, timeout_s: float = 2.0, model: str | None = None) -> str:
     """Clean up a dictation transcript via Integrator.
 
     Always degrades gracefully: if not connected, network is down, the call
     times out, or the response is malformed, returns `raw_text` unchanged.
     Dictation latency is sacred — never raise to the caller.
+
+    `model` is passed through to the broker; use "groq/default" to route the
+    request to the Groq backend instead of ChatGPT.
     """
     text = (raw_text or "").strip()
     if not text:
@@ -564,13 +585,13 @@ def cleanup(raw_text: str, *, timeout_s: float = 2.0) -> str:
     if not is_connected():
         return raw_text
     try:
-        # urlopen wants an int timeout; round up the float.
         upstream_timeout = max(1, int(round(timeout_s)))
         resp = chat(
             [
                 {"role": "system", "content": _CLEANUP_SYSTEM},
                 {"role": "user", "content": text},
             ],
+            model=model,
             temperature=0.1,
             max_tokens=max(64, len(text.split()) * 4),
             timeout_s=upstream_timeout,
@@ -585,11 +606,51 @@ def cleanup(raw_text: str, *, timeout_s: float = 2.0) -> str:
         return raw_text
     if not isinstance(cleaned, str):
         return raw_text
-    cleaned = cleaned.strip()
-    # Strip wrapping quotes models sometimes add despite the prompt.
-    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ('"', "'"):
-        cleaned = cleaned[1:-1].strip()
-    return cleaned or raw_text
+    cleaned = _strip_wrapping_quotes(cleaned)
+    if not cleaned:
+        return raw_text
+    return _fallback_if_mangled(raw_text, cleaned, threshold=0.5)
+
+
+def edit(context: str, instruction: str, *, timeout_s: float = 3.0, model: str | None = None) -> str:
+    """Apply a free-form editing instruction to `context`.
+
+    Used by Command Mode (⌥⇧C). Falls back to `context` on any failure;
+    guardrail threshold is 0.3 (more permissive than cleanup) because edits
+    are expected to be more transformative than pure cleanup.
+    """
+    ctx = (context or "").strip()
+    instr = (instruction or "").strip()
+    if not ctx or not instr:
+        return context
+    if not is_connected():
+        return context
+    user_msg = f"Text:\n{ctx}\n\nInstruction:\n{instr}"
+    try:
+        upstream_timeout = max(1, int(round(timeout_s)))
+        resp = chat(
+            [
+                {"role": "system", "content": _EDIT_SYSTEM},
+                {"role": "user", "content": user_msg},
+            ],
+            model=model,
+            temperature=0.1,
+            max_tokens=max(128, len(ctx.split()) * 4),
+            timeout_s=upstream_timeout,
+        )
+    except Exception as e:
+        log.warning("integrator edit failed: %s — falling back to raw context", e)
+        return context
+    try:
+        edited = resp["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return context
+    if not isinstance(edited, str):
+        return context
+    edited = _strip_wrapping_quotes(edited)
+    if not edited:
+        return context
+    return _fallback_if_mangled(context, edited, threshold=0.3)
 
 
 # ── CLI: `python -m integrator_chat <cmd>` ─────────────────────────────────

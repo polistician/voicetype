@@ -4,6 +4,7 @@
 import rumps
 import threading
 import os
+import subprocess
 import user_fixes
 
 
@@ -101,6 +102,8 @@ class VoxType(rumps.App):
             on_translate=self._translate_clipboard,
             on_open_overlay=self._open_overlay,
             on_open_quick_fix=self._on_open_quick_fix,
+            on_command_mode_start=self._start_command_mode_recording,
+            on_command_mode_stop=self._stop_command_mode_recording,
         )
         self.hotkey.start()
 
@@ -109,7 +112,9 @@ class VoxType(rumps.App):
 
         self._vad = None  # lazy-init on first audio (keeps cold-start fast)
         self._current_app: str | None = None  # bundle ID of focused app at recording start
-        self._llm_corrector = None  # lazy-init on first use (opt-in, off by default)
+        self._llm_corrector = None  # lazy-init on first use (legacy Phi-3 path)
+        self._mlx_cleanup = None    # lazy-init on first use of cleanup_backend="local"
+        self._cmd_recording = False # Command Mode recording state (⌥⇧C)
 
         # Streaming transcription state — set on each _start_recording when
         # streaming_enabled is True. None otherwise.
@@ -505,6 +510,126 @@ class VoxType(rumps.App):
         self._update_status("Transcribing...")
         threading.Thread(target=self._transcribe_and_paste, daemon=True).start()
 
+    # \u2500\u2500 Command Mode (\u2325\u21e7C) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    #
+    # Hold \u2325\u21e7C, dictate an editing instruction ("make it more formal", "turn
+    # this into bullets"), release. The instruction is run through the
+    # configured cleanup_backend's edit() against the last pasted text (or
+    # current clipboard fallback). Output replaces the previous paste.
+
+    def _start_command_mode_recording(self):
+        if not self.cfg.get("command_mode_enabled", True):
+            return
+        if not self._model_loaded.is_set():
+            print("[cmd-mode] model still loading", flush=True)
+            return
+        if self.recording or self._cmd_recording:
+            return
+        self._cmd_recording = True
+        # Yellow circle distinguishes Command Mode from regular recording.
+        self.title = "\U0001F7E1"
+        self._update_status("Command mode\u2026")
+        try:
+            self.recorder.start()
+        except Exception as e:
+            print(f"[cmd-mode] recorder.start failed: {e}", flush=True)
+            self._cmd_recording = False
+            self.title = "\U0001F3A4"
+
+    def _stop_command_mode_recording(self):
+        if not self._cmd_recording:
+            return
+        self._cmd_recording = False
+        self.title = "\u231b"
+        self._update_status("Editing\u2026")
+        threading.Thread(target=self._transcribe_and_edit, daemon=True).start()
+
+    def _transcribe_and_edit(self):
+        try:
+            audio = self.recorder.stop()
+        except Exception as e:
+            print(f"[cmd-mode] recorder.stop failed: {e}", flush=True)
+            self.title = "\U0001F3A4"
+            return
+        if audio is None or len(audio) < int(0.3 * self.cfg["sample_rate"]):
+            self._flash_skip("instruction too short")
+            return
+        try:
+            rich = self.transcriber.transcribe(audio)
+        except Exception as e:
+            print(f"[cmd-mode] transcribe failed: {e}", flush=True)
+            self.title = "\U0001F3A4"
+            return
+        instruction = (rich.get("text") if isinstance(rich, dict) else "") or ""
+        instruction = instruction.strip()
+        if not instruction:
+            self._flash_skip("no instruction heard")
+            return
+        context = (self.transcript_history.most_recent() or "").strip()
+        if not context:
+            context = self._read_clipboard()
+        if not context:
+            self._flash_skip("no recent text to edit")
+            return
+        edited = self._apply_voice_edit(context, instruction)
+        if not edited or edited.strip() == context.strip():
+            self._flash_skip("edit produced no change")
+            return
+        self.paster.paste(edited)
+        self.transcript_history.push(edited)
+        try:
+            vox_stats.increment("voice_edits_applied")
+        except Exception:
+            pass
+        self.title = "\U0001F3A4"
+        self._update_status("Idle -- ready")
+
+    def _read_clipboard(self) -> str:
+        """Best-effort read of the macOS pasteboard. Returns '' on any failure."""
+        try:
+            p = subprocess.run(
+                ["pbpaste"], capture_output=True, text=True, timeout=2, check=False,
+            )
+            return (p.stdout or "").strip()
+        except Exception:
+            return ""
+
+    def _handle_tier1_edit(self, cmd: str) -> None:
+        """Apply a Tier-1 voice command (no LLM call — pure mechanical actions).
+
+        These four commands are universal across Dragon → Wispr Flow → Aqua
+        and have 30 years of muscle memory behind them. Don't add more here
+        unless usage data shows demand — Rambler's CHI '24 study found users
+        max out at ~5 commands in practice.
+        """
+        if cmd == "scratch_that":
+            popped = self.transcript_history.pop_most_recent()
+            # Silent reversal — no paste. Best-effort clipboard clear so the
+            # last paste can't be ⌘V-d back accidentally.
+            try:
+                subprocess.run(["pbcopy"], input="", text=True,
+                               env={**os.environ, "LANG": "en_US.UTF-8",
+                                    "LC_ALL": "en_US.UTF-8"},
+                               check=False, timeout=2)
+            except Exception:
+                pass
+            print(f"  [scratch_that] dropped: {popped!r}", flush=True)
+        elif cmd == "new_line":
+            self.paster.paste("\n")
+        elif cmd == "new_paragraph":
+            self.paster.paste("\n\n")
+        elif cmd == "undo_that":
+            # Ask hotkey_helper to synthesize ⌘Z. Falls back to no-op when
+            # the helper isn't alive (e.g. in dev mode).
+            try:
+                self.hotkey.undo()
+            except Exception as e:
+                print(f"  [undo_that] failed: {e}", flush=True)
+        try:
+            vox_stats.increment(f"voice_edit_{cmd}")
+        except Exception:
+            pass
+
     def _transcribe_and_paste(self):
         try:
             audio = self.recorder.stop()
@@ -655,17 +780,8 @@ class VoxType(rumps.App):
             except Exception:
                 pass
 
-            # 2b. Optional LLM post-correction (default OFF — set use_llm_correction in config)
-            if self.cfg.get("use_llm_correction", False):
-                try:
-                    if self._llm_corrector is None:
-                        from llm_corrector import LLMCorrector
-                        self._llm_corrector = LLMCorrector()
-                    from corrections import get_corrections_dict
-                    user_corr = get_corrections_dict() if callable(getattr(__import__('corrections'), 'get_corrections_dict', None)) else None
-                    text = self._llm_corrector.correct(text, user_corrections=user_corr)
-                except Exception as e:
-                    print(f"[llm-correct] failed, using raw transcript: {e}", flush=True)
+            # (Legacy use_llm_correction block removed in v0.14 — local cleanup
+            # is now handled via cleanup_backend="local" in _run_cleanup below.)
 
             # 3. Pronunciation / training data — off the critical path
             audio_copy = audio.copy()
@@ -691,19 +807,14 @@ class VoxType(rumps.App):
             self._intent_history = self._intent_history[-20:]
 
             if intent.action == "dictate":
-                # Optional ChatGPT cleanup pass — opt-in, off by default.
-                # Only the transcript text leaves the machine, never audio.
-                # Cleanup degrades gracefully on any error/timeout — see
-                # integrator_chat.cleanup() for the contract.
-                if self.cfg.get("ai_cleanup_enabled"):
+                # Cleanup pass — dispatches to off / integrator / groq / local
+                # based on cfg["cleanup_backend"]. Each backend swallows its own
+                # failures and returns raw on error. See cleanup_backend.py.
+                from cleanup_backend import pick_cleanup_backend
+                if pick_cleanup_backend(self.cfg) != "off":
                     self._update_status("Cleaning…")
                     pre_cleanup = text
-                    try:
-                        text = integrator_chat.cleanup(text, timeout_s=2.0)
-                    except Exception as e:
-                        # cleanup() should already swallow exceptions, but belt-and-braces:
-                        print(f"  [warn] integrator cleanup failed: {e} — pasting raw", flush=True)
-                        text = pre_cleanup
+                    text = self._run_cleanup(text)
                     if text != pre_cleanup:
                         print(f"  [cleaned] {pre_cleanup} → {text}", flush=True)
                         vox_stats.increment("ai_cleanups_applied")
@@ -714,6 +825,11 @@ class VoxType(rumps.App):
                 vox_stats.log_decision(raw_whisper_text, "dictate", text[:200] if text != raw_whisper_text else "",
                                         duration_s=duration,
                                         was_corrected=(text != raw_whisper_text))
+            elif intent.action == "voice_edit":
+                self._handle_tier1_edit(intent.payload.get("command", ""))
+                vox_stats.log_decision(raw_whisper_text, "voice_edit",
+                                        intent.payload.get("command", ""),
+                                        duration_s=duration)
             elif intent.action == "paste_snippet":
                 self._handle_paste_snippet(intent.payload.get("description", ""))
             elif intent.action == "open_overview":
@@ -775,6 +891,51 @@ class VoxType(rumps.App):
             save_training_pair(audio, raw_text, corrected=corrected_text, confidence=confidence)
         except Exception:
             pass
+
+    def _run_cleanup(self, text: str) -> str:
+        """Dispatch cleanup to the configured backend. Returns raw on any failure."""
+        from cleanup_backend import pick_cleanup_backend
+        backend = pick_cleanup_backend(self.cfg)
+        if backend == "off":
+            return text
+        if backend == "integrator":
+            return integrator_chat.cleanup(text, timeout_s=2.0)
+        if backend == "groq":
+            return integrator_chat.cleanup(text, timeout_s=2.0, model="groq/default")
+        if backend == "local":
+            try:
+                if self._mlx_cleanup is None:
+                    from mlx_cleanup import MLXCleanup
+                    self._mlx_cleanup = MLXCleanup()
+                return self._mlx_cleanup.cleanup(text)
+            except Exception as e:
+                print(f"  [mlx-cleanup] failed: {e} — pasting raw", flush=True)
+                return text
+        return text
+
+    def _apply_voice_edit(self, context: str, instruction: str) -> str:
+        """Apply a Command Mode editing instruction via the configured backend."""
+        from cleanup_backend import pick_cleanup_backend
+        backend = pick_cleanup_backend(self.cfg)
+        if backend == "off":
+            # Fall back to integrator if paired, else no-op.
+            if integrator_chat.is_connected():
+                return integrator_chat.edit(context, instruction, timeout_s=3.0)
+            return context
+        if backend == "integrator":
+            return integrator_chat.edit(context, instruction, timeout_s=3.0)
+        if backend == "groq":
+            return integrator_chat.edit(context, instruction, timeout_s=3.0, model="groq/default")
+        if backend == "local":
+            try:
+                if self._mlx_cleanup is None:
+                    from mlx_cleanup import MLXCleanup
+                    self._mlx_cleanup = MLXCleanup()
+                return self._mlx_cleanup.edit(context, instruction)
+            except Exception as e:
+                print(f"  [mlx-edit] failed: {e} — returning context unchanged", flush=True)
+                return context
+        return context
 
     def _dictate_paste(self, text: str):
         if self.output_language != "EN" and self.translator._get_key():

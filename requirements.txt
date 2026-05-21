@@ -5,3 +5,10 @@ rumps
 numpy
 sentence-transformers
 rapidfuzz
+# Local cleanup backend (cleanup_backend="local").
+# mlx-lm is Apple-Silicon-only; on Intel Macs the runtime falls back to
+# llama-cpp-python via MLX_FALLBACK_LLAMACPP=1 (or auto-detect if MLX fails
+# to import). Both are optional at runtime — VoiceType still launches if
+# they're missing, the "Local" cleanup option just becomes inert.
+mlx-lm>=0.15; platform_machine == "arm64"
+huggingface_hub

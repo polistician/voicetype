@@ -179,7 +179,9 @@ class SettingsBridge:
         if event_type == "refresh_status":
             self._on_refresh_status(account)
             self._emit_setting_status("auto_paste")
-            self._emit_setting_status("ai_cleanup_enabled")
+            self._emit_setting_status("cleanup_backend")
+            self._emit_setting_status("command_mode_enabled")
+            self._emit_setting_status("voice_edit_auto_detect_enabled")
             self._emit_integrator_status()
         elif event_type == "verify_key":
             self._on_verify_key(account, msg.get("value", ""))
@@ -188,7 +190,9 @@ class SettingsBridge:
         elif event_type == "delete_key":
             self._on_delete_key(account)
         elif event_type == "set_setting":
-            self._on_set_setting(msg.get("key", ""), msg.get("boolValue"))
+            bv = msg.get("boolValue")
+            sv = msg.get("stringValue")
+            self._on_set_setting(msg.get("key", ""), bv if bv is not None else sv)
         elif event_type == "integrator_connect":
             self._on_integrator_connect()
         elif event_type == "integrator_disconnect":
@@ -250,40 +254,94 @@ class SettingsBridge:
             print(f"[settings] delete_key error: {e}", flush=True)
         self._send({"type": "key_status", "account": account, "present": False})
 
-    def _on_set_setting(self, key: str, bool_value) -> None:
-        """Update a boolean setting in config.json AND notify the parent
-        process to hot-reload its in-memory config."""
+    def _on_set_setting(self, key: str, value) -> None:
+        """Update a setting (bool or str) in config.json AND notify the parent
+        process to hot-reload its in-memory config.
+
+        Side effect: when switching cleanup_backend to "local" for the first
+        time, kick off the Qwen 3 0.6B model download in the background and
+        emit progress messages to the settings window.
+        """
         cfg_path = os.path.expanduser("~/.voicetype/config.json")
         try:
             with open(cfg_path) as f:
                 cfg = json.load(f)
         except Exception:
             cfg = {}
-        cfg[key] = bool_value
+        cfg[key] = value
+        # Strip the legacy boolean keys whenever the new backend key is set —
+        # keeps the on-disk config converged with what config.save_config does.
+        if key == "cleanup_backend":
+            cfg.pop("ai_cleanup_enabled", None)
+            cfg.pop("use_llm_correction", None)
         try:
             with open(cfg_path, "w") as f:
                 json.dump(cfg, f, indent=2)
-            print(f"[settings] set {key}={bool_value}", flush=True)
+            print(f"[settings] set {key}={value}", flush=True)
         except Exception as e:
             print(f"[settings] set_setting write error: {e}", flush=True)
         # Hot-reload: notify parent so the change applies to the running app
         if self.on_setting_change:
             try:
-                self.on_setting_change(key, bool_value)
+                self.on_setting_change(key, value)
             except Exception as e:
                 print(f"[settings] on_setting_change callback failed: {e}", flush=True)
+        # First-time local backend → download the Qwen model on a worker.
+        if key == "cleanup_backend" and value == "local":
+            self._kick_off_local_model_download()
+
+    def _kick_off_local_model_download(self) -> None:
+        try:
+            import mlx_cleanup
+        except Exception as e:
+            self._send({"type": "cleanup_backend_status",
+                        "value": "error",
+                        "error": f"mlx_cleanup unavailable: {e}"})
+            return
+        if mlx_cleanup.is_model_available():
+            self._send({"type": "cleanup_backend_status", "value": "ready"})
+            return
+
+        def _worker():
+            self._send({"type": "cleanup_backend_status", "value": "downloading"})
+            try:
+                def _progress(done: int, total: int):
+                    self._send({"type": "cleanup_backend_progress",
+                                "bytes": int(done), "total": int(total)})
+                mlx_cleanup.download_model(on_progress=_progress)
+                self._send({"type": "cleanup_backend_status", "value": "ready"})
+            except Exception as e:
+                print(f"[settings] mlx download failed: {e}", flush=True)
+                self._send({"type": "cleanup_backend_status",
+                            "value": "error", "error": str(e)})
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _emit_setting_status(self, key: str) -> None:
-        """Emit current setting value to the settings window."""
+        """Emit current setting value to the settings window.
+
+        Handles both boolean settings (sent as boolValue) and string-valued
+        settings like cleanup_backend (sent as stringValue).
+        """
         cfg_path = os.path.expanduser("~/.voicetype/config.json")
-        defaults = {"auto_paste": True, "ai_cleanup_enabled": False}
+        defaults = {
+            "auto_paste": True,
+            "cleanup_backend": "off",
+            "command_mode_enabled": True,
+            "voice_edit_auto_detect_enabled": True,
+        }
         try:
             with open(cfg_path) as f:
                 cfg = json.load(f)
             value = cfg.get(key, defaults.get(key, True))
         except Exception:
             value = defaults.get(key, True)
-        self._send({"type": "setting_status", "key": key, "boolValue": value})
+        msg = {"type": "setting_status", "key": key}
+        if isinstance(value, str):
+            msg["stringValue"] = value
+        else:
+            msg["boolValue"] = bool(value)
+        self._send(msg)
 
     # ── Integrator (ChatGPT cleanup) wiring ────────────────────────────────
 
@@ -455,9 +513,10 @@ class OnboardingBridge:
     def _on_integrator_connect(self) -> None:
         """Run the OAuth pairing in a worker so the onboarding window stays responsive.
 
-        Emits `integrator_result` with ok=true|false. If pairing succeeds, also
-        flips on the `ai_cleanup_enabled` config flag so the user gets the
-        feature they just opted into without an extra toggle step.
+        Emits `integrator_result` with ok=true|false. On success, sets
+        `cleanup_backend="integrator"` so the user gets the feature they just
+        opted into without an extra toggle step. Also strips the legacy
+        boolean keys so the in-memory and on-disk config converge.
         """
         def _worker():
             try:
@@ -467,20 +526,20 @@ class OnboardingBridge:
                 print(f"[onboarding] integrator connect failed: {e}", flush=True)
                 self._send({"type": "integrator_result", "ok": False, "error": str(e)})
                 return
-            # On success, enable the cleanup feature by default — the whole point
-            # of going through this screen is to use it.
             cfg_path = os.path.expanduser("~/.voicetype/config.json")
             try:
                 cfg: dict = {}
                 if os.path.exists(cfg_path):
                     with open(cfg_path) as f:
                         cfg = json.load(f)
-                cfg["ai_cleanup_enabled"] = True
+                cfg["cleanup_backend"] = "integrator"
+                cfg.pop("ai_cleanup_enabled", None)
+                cfg.pop("use_llm_correction", None)
                 os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
                 with open(cfg_path, "w") as f:
                     json.dump(cfg, f, indent=2)
             except Exception as e:
-                print(f"[onboarding] could not enable ai_cleanup_enabled: {e}", flush=True)
+                print(f"[onboarding] could not set cleanup_backend: {e}", flush=True)
             self._send({"type": "integrator_result", "ok": True})
 
         threading.Thread(target=_worker, daemon=True).start()

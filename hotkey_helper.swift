@@ -19,13 +19,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             fflush(stdout)
         }
 
-        // Start stdin reader for paste commands
+        // Start stdin reader for paste / undo commands
         let stdinThread = Thread {
             while let line = readLine() {
                 if line.hasPrefix("PASTE:") {
                     let text = String(line.dropFirst(6))
                     DispatchQueue.main.async {
                         self.pasteText(text)
+                    }
+                } else if line == "UNDO" {
+                    DispatchQueue.main.async {
+                        self.synthesizeCmdZ()
                     }
                 }
             }
@@ -135,6 +139,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             fputs("WARNING: Option+Shift+V Quick Fix hotkey failed (status: \(status4))\n", stderr)
         }
 
+        // Register Option+Shift+C (kVK_ANSI_C = 8) — Command Mode (hold to dictate
+        // an editing instruction against the last paste). Held key, so we listen
+        // for both press AND release like the dictate hotkey.
+        var cmdModeKeyRef: EventHotKeyRef?
+        let cmdModeKeyID = EventHotKeyID(signature: OSType(0x564F5854), id: 7)
+        let status5 = RegisterEventHotKey(
+            UInt32(kVK_ANSI_C),
+            UInt32(optionKey | shiftKey),
+            cmdModeKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &cmdModeKeyRef
+        )
+        if status5 != noErr {
+            fputs("WARNING: Option+Shift+C Command Mode hotkey failed (status: \(status5))\n", stderr)
+        }
+
         fputs("READY\n", stdout)
         fflush(stdout)
 
@@ -180,6 +201,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         fputs("OPEN_QUICK_FIX\n", stdout)
                         fflush(stdout)
                     }
+                } else if hotKeyID.id == 7 {
+                    // Option+Shift+C — Command Mode (hold to dictate an edit)
+                    if kind == UInt32(kEventHotKeyPressed) {
+                        fputs("COMMAND_MODE_START\n", stdout)
+                        fflush(stdout)
+                    } else if kind == UInt32(kEventHotKeyReleased) {
+                        fputs("COMMAND_MODE_STOP\n", stdout)
+                        fflush(stdout)
+                    }
                 }
                 return noErr
             },
@@ -214,6 +244,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         keyUp?.post(tap: .cgSessionEventTap)
 
         fputs("PASTED\n", stdout)
+        fflush(stdout)
+    }
+
+    func synthesizeCmdZ() {
+        // Cmd+Z — used by Tier-1 voice command "undo that". Uses the same
+        // cgSessionEventTap pattern as paste() so target apps see a real
+        // keystroke, not a "synthesized" event filtered by some apps.
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let zKeyCode: CGKeyCode = 6  // kVK_ANSI_Z
+
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: true)
+        keyDown?.flags = .maskCommand
+        keyDown?.post(tap: .cgSessionEventTap)
+
+        usleep(30000)
+
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: false)
+        keyUp?.flags = .maskCommand
+        keyUp?.post(tap: .cgSessionEventTap)
+
+        fputs("UNDONE\n", stdout)
         fflush(stdout)
     }
 }

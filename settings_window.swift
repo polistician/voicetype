@@ -16,6 +16,7 @@ struct InMessage: Codable {
     var error: String?
     var key: String?
     var boolValue: Bool?
+    var stringValue: String?
     var value: String?
 }
 
@@ -25,6 +26,7 @@ struct OutEvent: Codable {
     var value: String?
     var key: String?
     var boolValue: Bool?
+    var stringValue: String?
 }
 
 func emit(_ event: OutEvent) {
@@ -44,18 +46,22 @@ class SettingsState: ObservableObject {
     @Published var revealKey: Bool = false
     @Published var autoPaste: Bool = true
 
-    // AI cleanup (Integrator)
-    @Published var aiCleanupEnabled: Bool = false
+    // Cleanup backend (unified replacement for AI cleanup + LLM correction).
+    // Allowed string values: "off" | "integrator" | "groq" | "local".
+    @Published var cleanupBackend: String = "off"
     @Published var integratorConnected: Bool = false
     @Published var integratorEmail: String = ""
     @Published var integratorBusy: Bool = false
     @Published var integratorError: String = ""
 
-    // LLM post-correction (Experimental)
-    @Published var useLLMCorrection: Bool = false
-    @Published var llmModelDownloaded: Bool = false
-    @Published var llmDownloadBusy: Bool = false
-    @Published var llmDownloadError: String = ""
+    // Local (MLX Qwen 3) download state — populated by cleanup_backend_status/progress.
+    @Published var localModelReady: Bool = false
+    @Published var localDownloadBusy: Bool = false
+    @Published var localDownloadError: String = ""
+
+    // Command Mode (⌥⇧C) + Tier-1 voice-edit phrases.
+    @Published var commandModeEnabled: Bool = true
+    @Published var voiceEditAutoDetect: Bool = true
 
     func handle(_ msg: InMessage) {
         switch msg.type {
@@ -80,24 +86,31 @@ class SettingsState: ObservableObject {
             if msg.key == "auto_paste", let v = msg.boolValue {
                 self.autoPaste = v
             }
-            if msg.key == "ai_cleanup_enabled", let v = msg.boolValue {
-                self.aiCleanupEnabled = v
+            if msg.key == "cleanup_backend", let s = msg.stringValue {
+                self.cleanupBackend = s
             }
-            if msg.key == "use_llm_correction", let v = msg.boolValue {
-                self.useLLMCorrection = v
+            if msg.key == "command_mode_enabled", let v = msg.boolValue {
+                self.commandModeEnabled = v
             }
-        case "llm_model_status":
-            self.llmModelDownloaded = msg.boolValue ?? false
+            if msg.key == "voice_edit_auto_detect_enabled", let v = msg.boolValue {
+                self.voiceEditAutoDetect = v
+            }
+        case "cleanup_backend_status":
             let v = msg.value ?? ""
-            if v == "downloading" {
-                self.llmDownloadBusy = true
-                self.llmDownloadError = ""
-            } else if v.hasPrefix("error:") {
-                self.llmDownloadBusy = false
-                self.llmDownloadError = String(v.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
-            } else {
-                self.llmDownloadBusy = false
-                self.llmDownloadError = ""
+            switch v {
+            case "downloading":
+                self.localDownloadBusy = true
+                self.localDownloadError = ""
+                self.localModelReady = false
+            case "ready":
+                self.localDownloadBusy = false
+                self.localDownloadError = ""
+                self.localModelReady = true
+            case "error":
+                self.localDownloadBusy = false
+                self.localDownloadError = msg.error ?? "download failed"
+            default:
+                break
             }
         case "key_value":
             if msg.account == "deepl", let v = msg.value {
@@ -258,14 +271,14 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
                 .padding(.top, 12)
-            AICleanupRow(state: state)
+            CleanupBackendRow(state: state)
 
-            Text("Experimental")
+            Text("Voice editing")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
                 .padding(.top, 12)
-            LLMCorrectionRow(state: state)
+            VoiceEditingRow(state: state)
 
             Spacer()
         }
@@ -275,56 +288,91 @@ struct SettingsView: View {
     }
 }
 
-struct AICleanupRow: View {
+struct CleanupBackendRow: View {
     @ObservedObject var state: SettingsState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
-                Toggle("AI cleanup (via Integrator)", isOn: $state.aiCleanupEnabled)
-                    .onChange(of: state.aiCleanupEnabled) { _, newValue in
-                        emit(OutEvent(type: "set_setting", key: "ai_cleanup_enabled", boolValue: newValue))
-                    }
-                    .disabled(!state.integratorConnected)
+                Picker("Backend", selection: $state.cleanupBackend) {
+                    Text("Off (raw transcript)").tag("off")
+                    Text("Integrator \u{2014} ChatGPT (cloud)").tag("integrator")
+                    Text("Integrator \u{2014} Groq (cloud, fast)").tag("groq")
+                    Text("Local \u{2014} Qwen 3 0.6B (on-device)").tag("local")
+                }
+                .pickerStyle(.menu)
+                .onChange(of: state.cleanupBackend) { _, newValue in
+                    emit(OutEvent(type: "set_setting", key: "cleanup_backend", stringValue: newValue))
+                }
                 Spacer()
                 statusBadge
             }
-            Text("Sends transcripts (not audio) to ChatGPT via Integrator to remove \u{201C}um\u{201D}s, fix punctuation, and tidy rambling. 2-second budget; falls back to raw transcript on any error.")
+            Text("How VoiceType tightens raw Whisper output before pasting. Cloud paths send only the transcript text \u{2014} never audio. Local path is fully offline. Any backend falls back to raw text on failure.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                if state.integratorConnected {
-                    Button("Disconnect") {
-                        emit(OutEvent(type: "integrator_disconnect"))
+            if state.cleanupBackend == "integrator" || state.cleanupBackend == "groq" {
+                HStack(spacing: 8) {
+                    if state.integratorConnected {
+                        Button("Disconnect Integrator") {
+                            emit(OutEvent(type: "integrator_disconnect"))
+                        }
+                        .buttonStyle(.bordered)
+                        if !state.integratorEmail.isEmpty {
+                            Text(state.integratorEmail)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Button(state.integratorBusy ? "Connecting\u{2026}" : "Connect Integrator") {
+                            emit(OutEvent(type: "integrator_connect"))
+                        }
+                        .disabled(state.integratorBusy)
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.bordered)
-                    if !state.integratorEmail.isEmpty {
-                        Text(state.integratorEmail)
+                    Spacer()
+                    Text("integrator.polistician.ai \u{2192}")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(red: 0.302, green: 0.561, blue: 0.859))
+                        .onTapGesture {
+                            if let url = URL(string: "https://integrator.polistician.ai") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                }
+                if state.cleanupBackend == "groq" && !state.integratorConnected {
+                    Text("Groq routes through Integrator \u{2014} pair Integrator above, then paste your Groq API key at integrator.polistician.ai/console/connectors.html.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !state.integratorError.isEmpty {
+                    Text("\u{00D7} \(state.integratorError)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+            } else if state.cleanupBackend == "local" {
+                if state.localDownloadBusy {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Downloading Qwen 3 0.6B (~400 MB)\u{2026}")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
+                } else if state.localModelReady {
+                    Text("\u{2713} Model ready \u{2014} ~/.voicetype/models/cleanup/qwen3-0.6b-4bit/")
+                        .font(.system(size: 11))
+                        .foregroundColor(.green)
                 } else {
-                    Button(state.integratorBusy ? "Connecting\u{2026}" : "Connect Integrator") {
-                        emit(OutEvent(type: "integrator_connect"))
-                    }
-                    .disabled(state.integratorBusy)
-                    .buttonStyle(.borderedProminent)
+                    Text("Model will download on first dictation.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
                 }
-                Spacer()
-                Text("integrator.polistician.ai \u{2192}")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.302, green: 0.561, blue: 0.859))
-                    .onTapGesture {
-                        if let url = URL(string: "https://integrator.polistician.ai") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-            }
-            if !state.integratorError.isEmpty {
-                Text("\u{00D7} \(state.integratorError)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
+                if !state.localDownloadError.isEmpty {
+                    Text("\u{00D7} \(state.localDownloadError)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
             }
         }
         .padding(14)
@@ -334,73 +382,51 @@ struct AICleanupRow: View {
 
     @ViewBuilder
     var statusBadge: some View {
-        if state.integratorBusy {
-            HStack(spacing: 4) {
-                ProgressView().controlSize(.small)
-                Text("connecting\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
-            }
-        } else if state.integratorConnected {
-            Text("\u{2713} connected").font(.system(size: 11)).foregroundColor(.green)
+        if state.cleanupBackend == "off" {
+            Text("off").font(.system(size: 11)).foregroundColor(.secondary)
+        } else if (state.cleanupBackend == "integrator" || state.cleanupBackend == "groq") && state.integratorConnected {
+            Text("\u{2713} ready").font(.system(size: 11)).foregroundColor(.green)
+        } else if state.cleanupBackend == "local" && state.localModelReady {
+            Text("\u{2713} ready").font(.system(size: 11)).foregroundColor(.green)
+        } else if state.cleanupBackend == "local" && state.localDownloadBusy {
+            Text("downloading\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
         } else {
-            Text("\u{00D7} not connected").font(.system(size: 11)).foregroundColor(.secondary)
+            Text("\u{26A0} needs setup").font(.system(size: 11)).foregroundColor(.orange)
         }
     }
 }
 
-struct LLMCorrectionRow: View {
+struct VoiceEditingRow: View {
     @ObservedObject var state: SettingsState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                Toggle("LLM post-correction (Phi-3-mini, ~2 GB download, +500 ms)", isOn: $state.useLLMCorrection)
-                    .onChange(of: state.useLLMCorrection) { _, newValue in
-                        emit(OutEvent(type: "set_setting", key: "use_llm_correction", boolValue: newValue))
-                        // If enabling and model is not present, trigger download
-                        if newValue && !state.llmModelDownloaded {
-                            emit(OutEvent(type: "llm_download_model"))
-                        }
+            HStack {
+                Toggle("Command Mode (hold \u{2325}\u{21E7}C to dictate an edit)", isOn: $state.commandModeEnabled)
+                    .onChange(of: state.commandModeEnabled) { _, newValue in
+                        emit(OutEvent(type: "set_setting", key: "command_mode_enabled", boolValue: newValue))
                     }
                 Spacer()
-                modelStatusBadge
             }
-            Text("Runs Phi-3-mini locally after Whisper to remove disfluencies, fix word errors, and match your style. Audio never leaves the machine. Model is downloaded once to ~/.voicetype/models/llm/.")
+            Text("Hold \u{2325}\u{21E7}C while speaking an instruction (e.g. \u{201C}make it more formal\u{201D}, \u{201C}turn this into bullets\u{201D}). The instruction is applied to the last paste via the configured cleanup backend.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if !state.llmModelDownloaded {
-                HStack(spacing: 8) {
-                    Button(state.llmDownloadBusy ? "Downloading…" : "Download model now") {
-                        emit(OutEvent(type: "llm_download_model"))
+            HStack {
+                Toggle("Tier-1 voice phrases (\u{201C}scratch that\u{201D}, \u{201C}new line\u{201D}, \u{201C}new paragraph\u{201D}, \u{201C}undo that\u{201D})", isOn: $state.voiceEditAutoDetect)
+                    .onChange(of: state.voiceEditAutoDetect) { _, newValue in
+                        emit(OutEvent(type: "set_setting", key: "voice_edit_auto_detect_enabled", boolValue: newValue))
                     }
-                    .disabled(state.llmDownloadBusy)
-                    .buttonStyle(.borderedProminent)
-                    Spacer()
-                }
+                Spacer()
             }
-            if !state.llmDownloadError.isEmpty {
-                Text("\u{00D7} \(state.llmDownloadError)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-            }
+            Text("Auto-trigger on dictated commands without holding the Command Mode key. Disable if false-positives interfere with normal dictation.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
-    }
-
-    @ViewBuilder
-    var modelStatusBadge: some View {
-        if state.llmDownloadBusy {
-            HStack(spacing: 4) {
-                ProgressView().controlSize(.small)
-                Text("downloading\u{2026}").font(.system(size: 11)).foregroundColor(.secondary)
-            }
-        } else if state.llmModelDownloaded {
-            Text("\u{2713} model downloaded").font(.system(size: 11)).foregroundColor(.green)
-        } else {
-            Text("model needed").font(.system(size: 11)).foregroundColor(.secondary)
-        }
     }
 }
 
@@ -515,7 +541,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             emit(OutEvent(type: "refresh_status", account: "deepl"))
         case "close":
             controller.window?.orderOut(nil)
-        case "key_status", "verify_result", "setting_status", "key_value", "integrator_status", "llm_model_status":
+        case "key_status", "verify_result", "setting_status", "key_value", "integrator_status", "cleanup_backend_status":
             state.handle(msg)
         default:
             break

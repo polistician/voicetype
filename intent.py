@@ -22,7 +22,10 @@ from typing import Literal
 from rapidfuzz import fuzz
 
 
-Action = Literal["dictate", "paste_snippet", "open_overview", "save_snippet", "open_help", "open_fix", "open_stats"]
+Action = Literal[
+    "dictate", "paste_snippet", "open_overview", "save_snippet",
+    "open_help", "open_fix", "open_stats", "voice_edit",
+]
 
 
 @dataclass
@@ -90,6 +93,29 @@ def reload_user_fixes():
     _EXTRA_SAVE_VARIANTS = set(data.get("save_variants", []))
     _EXTRA_CLIPBOARD_VARIANTS = set(data.get("clipboard_variants", []))
 
+# Tier-1 voice-edit phrases — auto-trigger when dictated alone, no hold-key.
+# Match strictly (entire utterance fuzz-matches a variant ≥88) so a sentence
+# like "I want to scratch that itch later" doesn't fire scratch_that.
+_VOICE_EDIT_PHRASES: dict[str, list[str]] = {
+    "scratch_that":  ["scratch that", "scratch this", "strike that",
+                      "undo my last sentence"],
+    "new_line":      ["new line", "newline", "next line"],
+    "new_paragraph": ["new paragraph", "next paragraph", "paragraph break"],
+    "undo_that":     ["undo that", "undo it", "undo last"],
+}
+
+
+def _detect_voice_edit(cleaned: str) -> str | None:
+    """Return a Tier-1 command name if `cleaned` matches one ≥88 fuzz ratio."""
+    if not cleaned:
+        return None
+    for cmd, variants in _VOICE_EDIT_PHRASES.items():
+        for v in variants:
+            if fuzz.ratio(cleaned, v) >= 88:
+                return cmd
+    return None
+
+
 _BARE_FIX_VARIANTS = {"fix", "fixed", "fixes", "fixing"}
 _BARE_STATS_VARIANTS = {"stats", "analytics", "statistics"}
 
@@ -116,6 +142,21 @@ def route(text: str) -> Intent:
     cleaned = _clean(text)
     if not cleaned:
         return Intent(action="dictate", payload={"text": raw}, confidence=1.0)
+
+    # -- voice_edit (Tier-1 phrases) --
+    # Auto-trigger on dictated commands like "scratch that" or "new paragraph"
+    # without requiring the user to hold the Command Mode key. Gated by config
+    # so users can disable when false-positives bite their dictation.
+    try:
+        from config import load_config as _load_config
+        _auto = bool(_load_config().get("voice_edit_auto_detect_enabled", True))
+    except Exception:
+        _auto = True
+    if _auto:
+        ve = _detect_voice_edit(cleaned)
+        if ve is not None:
+            return Intent(action="voice_edit",
+                          payload={"command": ve}, confidence=0.95)
 
     tokens = cleaned.split()
     trigger_span, is_compound_trigger = _detect_trigger(tokens)

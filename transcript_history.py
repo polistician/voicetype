@@ -35,5 +35,12 @@ class History:
             return None
         return self._buf[-1].text
 
+    def pop_most_recent(self) -> str | None:
+        """Remove and return the most recent entry. Used by Tier-1 'scratch that'.
+        Returns None when the buffer is empty."""
+        if not self._buf:
+            return None
+        return self._buf.pop().text
+
     def clear(self) -> None:
         self._buf.clear()

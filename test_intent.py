@@ -122,5 +122,42 @@ def test_dictate_has_full_text_in_payload():
     assert r.payload.get("text") == "let me explain the plan"
 
 
+# --- voice_edit (Tier-1 phrases) ---
+
+@pytest.mark.parametrize("text,cmd", [
+    ("scratch that", "scratch_that"),
+    ("Scratch that.", "scratch_that"),
+    ("strike that", "scratch_that"),
+    ("new line", "new_line"),
+    ("new paragraph", "new_paragraph"),
+    ("paragraph break", "new_paragraph"),
+    ("undo that", "undo_that"),
+    ("undo it", "undo_that"),
+])
+def test_voice_edit_detected(text, cmd):
+    r = route(text)
+    assert r.action == "voice_edit", f"{text!r} should be voice_edit but was {r.action!r}"
+    assert r.payload.get("command") == cmd
+
+
+def test_voice_edit_does_not_trigger_inside_sentence():
+    """Tier-1 phrases must NOT trigger when they're embedded in a dictation.
+    Otherwise 'I want to scratch that itch' would silently revert."""
+    r = route("I want to scratch that itch later")
+    assert r.action == "dictate"
+
+
+def test_voice_edit_disabled_returns_dictate(monkeypatch, tmp_path):
+    """Setting voice_edit_auto_detect_enabled=False must restore literal paste."""
+    import json, config as cfg_mod
+    p = tmp_path / "config.json"
+    with open(p, "w") as f:
+        json.dump({"voice_edit_auto_detect_enabled": False}, f)
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", str(p))
+    # Reload route() so it picks up the flag on its next config read.
+    r = route("new paragraph")
+    assert r.action == "dictate"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
