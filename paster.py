@@ -17,9 +17,17 @@ class Paster:
         self._hotkey.paste(text)
 
     def set_clipboard_only(self, text: str):
-        """Write to clipboard without synthesizing Cmd+V (manual-paste mode)."""
+        """Write to clipboard without synthesizing Cmd+V (manual-paste mode).
+
+        LANG=en_US.UTF-8 forces pbcopy to treat stdin as UTF-8. When VoiceType
+        is launched as a .app, the process inherits no LANG/LC_* vars and
+        pbcopy falls back to MacRoman — silently mangling umlauts and any
+        non-ASCII text (German ö → √∂, French é → √©, etc.).
+        """
+        import os
         import subprocess
+        env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
         try:
-            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=False, timeout=2)
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), env=env, check=False, timeout=2)
         except Exception:
             pass
