@@ -5,6 +5,7 @@ import rumps
 import threading
 import os
 import subprocess
+import time
 import user_fixes
 
 
@@ -351,7 +352,36 @@ class VoxType(rumps.App):
 
         self._model_loaded.set()
         print("Model loaded!", flush=True)
+
+        # Pre-flight the audio input device so the first ⌥C press doesn't pay
+        # the full PortAudio + Core Audio HAL cold-start cost (~100ms on M-series).
+        # We open a stream for ~50ms and immediately close it: the discard callback
+        # eats any captured audio, the kernel/driver code stays warm, and the
+        # macOS recording indicator only blinks for that brief window (not
+        # persistently). On microphone-permission-denied or missing input
+        # device the try/except eats the failure — recording still works on
+        # first press, just without the latency saving.
+        self._warm_audio_device()
+
         self._update_status("Idle -- ready")
+
+    def _warm_audio_device(self) -> None:
+        """One-shot audio-device warming. Safe no-op on any failure."""
+        try:
+            import sounddevice as sd
+            stream = sd.InputStream(
+                samplerate=self.cfg["sample_rate"],
+                channels=1,
+                dtype="float32",
+                callback=lambda indata, frames, t, status: None,
+            )
+            stream.start()
+            time.sleep(0.05)
+            stream.stop()
+            stream.close()
+            print("[audio] PortAudio + Core Audio HAL warmed", flush=True)
+        except Exception as e:
+            print(f"[audio] warm-up skipped ({e}) — first record will pay cold start", flush=True)
 
     def _refresh_whisper_vocab(self, app: str | None = None):
         """Rebuild Whisper vocabulary, optionally biased toward a specific app."""
@@ -1430,16 +1460,25 @@ class VoxType(rumps.App):
                 self._show_alert("Update failed", f"Unexpected error: {e}", buttons=["OK"])
                 return
 
+            # Auto-relaunch — no "Later" option. The "Later" path created an
+            # inconsistent state: bundle on disk is the new version but the
+            # running process is still the old code in RAM. Users routinely
+            # forgot to manually quit + reopen, which led to confusing
+            # "Check for Updates" loops where the app reported itself as the
+            # new version even though no new code was loaded. After v0.14.1
+            # the updater also kills all child helpers before the swap, so
+            # the relaunch is guaranteed to come up clean.
             self.title = "✅"
-            clicked = self._show_alert(
+            self._update_status(f"Updated to v{new_v} — relaunching…")
+            self._show_alert(
                 f"Updated to v{new_v}",
-                "VoiceType has been updated. Click OK to relaunch.\n\nNote: macOS may ask you to re-grant Microphone + Accessibility because the new binary has a different signature.",
-                buttons=["Relaunch", "Later"]
+                "VoiceType will now relaunch.\n\nNote: macOS may ask you to "
+                "re-grant Microphone + Accessibility because the new binary "
+                "has a different signature.",
+                buttons=["OK"],
             )
-            if "Relaunch" in clicked:
-                relaunch()
-            # If user clicks Later, restore the title
-            self.title = original_title
+            relaunch()
+            # relaunch() calls sys.exit(0) — anything after here is unreachable.
 
         threading.Thread(target=_run, daemon=True).start()
 

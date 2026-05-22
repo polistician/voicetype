@@ -13,9 +13,11 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from typing import Callable, Optional
 
@@ -61,6 +63,62 @@ def _sha256(path: str) -> str:
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=False, **kwargs)
+
+
+def _kill_all_children() -> None:
+    """Terminate every VoiceType process under /Applications/VoiceType.app/
+    *except this one* so the bundle swap can proceed without orphan helpers
+    (`hotkey_helper`, `snippet_overlay`, `settings_window`) holding file
+    descriptors inside Contents/Frameworks/.
+
+    SIGTERM first, wait 2s, then SIGKILL anything still alive. Self is
+    excluded because killing the running updater mid-swap would leave the
+    install in a broken state.
+
+    Background: before this helper existed, child processes spawned by the
+    main VoiceType_main routinely outlived the parent during an update,
+    silently held open inodes inside the .app, and prevented the new bundle
+    from binding its Carbon hotkeys / SettingsBridge socket cleanly. After
+    a few update cycles the system accumulated multiple zombie helpers and
+    "Check for Updates" would no-op or report 'application no longer open'.
+    """
+    try:
+        out = subprocess.check_output(
+            ["pgrep", "-f", APP_PATH], text=True, timeout=2,
+        ).strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return  # no matches = empty output = CalledProcessError(1), all fine
+    self_pid = os.getpid()
+    pids = [
+        int(p) for p in out.split()
+        if p.isdigit() and int(p) != self_pid
+    ]
+    if not pids:
+        return
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    # Give them 2 seconds to exit gracefully.
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        alive = []
+        for pid in pids:
+            try:
+                os.kill(pid, 0)  # signal 0 = existence check
+                alive.append(pid)
+            except ProcessLookupError:
+                pass
+        if not alive:
+            return
+        time.sleep(0.1)
+    # Anything still alive — SIGKILL.
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def _detach_mount() -> None:
@@ -130,6 +188,12 @@ def perform_update(on_progress: Optional[Callable[[str], None]] = None) -> str:
                 raise UpdateError("VoiceType.app not found in mounted DMG.")
 
         # 6. Replace /Applications/VoiceType.app
+        # Kill any VoiceType child processes (hotkey_helper, snippet_overlay,
+        # settings_window) BEFORE the swap so they can't hold stale fds inside
+        # Contents/Frameworks/ and prevent a clean bind on relaunch. We
+        # exclude our own PID so the updater finishes the swap.
+        status("Stopping helpers…")
+        _kill_all_children()
         status("Installing…")
         if os.path.exists(APP_PATH):
             shutil.rmtree(APP_PATH, ignore_errors=False)
