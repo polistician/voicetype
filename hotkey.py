@@ -22,6 +22,11 @@ class HotkeyListener:
         self.on_command_mode_start = on_command_mode_start
         self.on_command_mode_stop = on_command_mode_stop
         self._proc = None
+        # Populated from the helper's startup banner once the layout is probed.
+        # True when the active input source treats ⌥C as a dead-key compose
+        # (German, French, Spanish, etc.) — in that case the helper has
+        # skipped registering plain ⌥C and ⌃⌥C is the only dictate hotkey.
+        self.option_c_is_dead_key: bool = False
 
     def undo(self):
         """Send an UNDO signal to the helper — synthesizes ⌘Z in the frontmost app.
@@ -61,8 +66,13 @@ class HotkeyListener:
 
         for line in self._proc.stdout:
             line = line.strip()
-            if line == "READY":
-                print("Hotkey listener active (Option+C, Option+T, Option+Shift+S, Option+Shift+V, Option+Shift+C)", flush=True)
+            if line.startswith("LAYOUT_DEAD_KEY_OPTION_C:"):
+                value = line.split(":", 1)[1].strip().lower()
+                self.option_c_is_dead_key = value in ("true", "yes", "1")
+                print(f"[hotkey] dead-key layout detected: {self.option_c_is_dead_key}", flush=True)
+            elif line == "READY":
+                primary = "Control+Option+C" if self.option_c_is_dead_key else "Option+C"
+                print(f"Hotkey listener active ({primary} dictate, Option+T translate, Option+Shift+S overlay, Option+Shift+V quick-fix, Option+Shift+C command-mode)", flush=True)
             elif line == "START":
                 self.on_start()
             elif line == "STOP":

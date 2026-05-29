@@ -5,6 +5,62 @@
 import Cocoa
 import Carbon
 
+/// Returns `true` when the active input source is a layout where ⌥C produces a
+/// dead-key composition (ç, ¸, …) instead of plain "c". On those layouts
+/// macOS consumes the held ⌥C event after a short window — surfacing as
+/// recording-cut-off mid-press in VoiceType. The fix is to skip registering
+/// plain ⌥C and rely on the ⌃⌥C fallback (which the Control modifier breaks
+/// out of the dead-key path).
+///
+/// Detected by probing the layout itself: ask UCKeyTranslate what `kVK_ANSI_C`
+/// produces with the optionKey modifier. If the result is anything other than
+/// a plain "c", the layout treats ⌥C as a compose key. Works for German,
+/// French, Italian, Spanish, Swiss, Portuguese, Czech, etc. — without
+/// maintaining a hard-coded layout-ID allowlist.
+func isOptionCDeadKey() -> Bool {
+    guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+          let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+    else {
+        return false
+    }
+    let layoutData = unsafeBitCast(layoutDataRef, to: CFData.self)
+    let keyLayoutPtr = CFDataGetBytePtr(layoutData)?.withMemoryRebound(
+        to: UCKeyboardLayout.self, capacity: 1
+    ) { $0 }
+    guard let keyLayout = keyLayoutPtr else { return false }
+
+    var deadKeyState: UInt32 = 0
+    var actualLength = 0
+    var chars = [UniChar](repeating: 0, count: 4)
+    let kbdType = UInt32(LMGetKbdType())
+    // optionKey lives in bit 11 of EventRecord.modifiers; UCKeyTranslate wants
+    // it shifted into the low byte (>> 8). 0x0800 >> 8 = 0x08.
+    let modifierKeyState: UInt32 = UInt32(optionKey >> 8)
+
+    let err = UCKeyTranslate(
+        keyLayout,
+        UInt16(kVK_ANSI_C),
+        UInt16(kUCKeyActionDown),
+        modifierKeyState,
+        kbdType,
+        OptionBits(kUCKeyTranslateNoDeadKeysMask) ^ OptionBits(kUCKeyTranslateNoDeadKeysMask),
+        &deadKeyState,
+        chars.count,
+        &actualLength,
+        &chars
+    )
+    if err != noErr { return false }
+
+    // If the layout still has dead-key state pending (deadKeyState != 0) or
+    // it produced a non-"c" character, ⌥C is a compose key on this layout.
+    if deadKeyState != 0 { return true }
+    if actualLength == 0 { return true }
+    let produced = chars[0]
+    // Plain "c" is U+0063 (lowercase), U+0043 (uppercase). Anything else =
+    // dead-key compose or accented char.
+    return produced != 0x0063 && produced != 0x0043
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Verify we actually have permission to post events
@@ -36,27 +92,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         stdinThread.start()
 
-        // Register Option+C hotkey (kVK_ANSI_C = 8) — dictate
-        var dictateKeyRef: EventHotKeyRef?
-        let dictateKeyID = EventHotKeyID(signature: OSType(0x564F5854), id: 1)
+        // Auto-detect layouts where ⌥C is a dead-key compose (German, French,
+        // Italian, Spanish, Swiss, Portuguese, Czech, …). On those layouts
+        // we skip registering plain ⌥C entirely — it would cause macOS to
+        // fire a synthetic key-release through Carbon mid-press, surfacing as
+        // recording cut-off. The ⌃⌥C fallback is unaffected (Control breaks
+        // the dead-key composition path).
+        let deadKeyLayout = isOptionCDeadKey()
+        fputs("LAYOUT_DEAD_KEY_OPTION_C: \(deadKeyLayout)\n", stdout)
+        fflush(stdout)
 
-        let status1 = RegisterEventHotKey(
-            UInt32(kVK_ANSI_C),
-            UInt32(optionKey),
-            dictateKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &dictateKeyRef
-        )
-
-        if status1 != noErr {
-            fputs("WARNING: Option+C dictate hotkey failed to register (status: \(status1))\n", stderr)
+        var status1: OSStatus = noErr
+        if !deadKeyLayout {
+            // Register Option+C hotkey (kVK_ANSI_C = 8) — dictate
+            var dictateKeyRef: EventHotKeyRef?
+            let dictateKeyID = EventHotKeyID(signature: OSType(0x564F5854), id: 1)
+            status1 = RegisterEventHotKey(
+                UInt32(kVK_ANSI_C),
+                UInt32(optionKey),
+                dictateKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &dictateKeyRef
+            )
+            if status1 != noErr {
+                fputs("WARNING: Option+C dictate hotkey failed to register (status: \(status1))\n", stderr)
+            }
+        } else {
+            // Mark as "registration intentionally skipped"; the ⌃⌥C path below
+            // becomes the only dictate hotkey on this layout.
+            fputs("INFO: ⌥C skipped on dead-key layout — use ⌃⌥C to dictate\n", stdout)
+            fflush(stdout)
+            status1 = OSStatus(eventNotHandledErr) // sentinel so the both-failed gate below ignores us
         }
 
-        // ALSO register Control+Option+C — fallback for German QWERTZ layouts
-        // where ⌥C is a dead-key composition (produces ç) and macOS consumes
-        // the event at the layout level before Carbon hotkey delivery. Adding
-        // Control breaks the dead-key path. Both hotkeys fire the same handler.
+        // ALWAYS register Control+Option+C — the canonical dictate hotkey on
+        // dead-key layouts and a useful alias on standard QWERTY too.
         var dictateAltRef: EventHotKeyRef?
         let dictateAltID = EventHotKeyID(signature: OSType(0x564F5854), id: 4)
         let status1b = RegisterEventHotKey(
@@ -71,8 +142,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             fputs("WARNING: Control+Option+C alternate hotkey failed (status: \(status1b))\n", stderr)
         }
 
-        if status1 != noErr && status1b != noErr {
+        // Bail only if BOTH ⌥C registration succeeded-was-attempted-and-failed
+        // AND ⌃⌥C failed. On dead-key layouts we don't count the skipped ⌥C
+        // as a failure.
+        if !deadKeyLayout && status1 != noErr && status1b != noErr {
             fputs("ERROR: Both ⌥C and ⌃⌥C dictate hotkeys failed to register\n", stderr)
+            exit(1)
+        }
+        if deadKeyLayout && status1b != noErr {
+            fputs("ERROR: ⌃⌥C dictate hotkey failed and ⌥C is unavailable on this dead-key layout\n", stderr)
             exit(1)
         }
 
