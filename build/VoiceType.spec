@@ -72,6 +72,12 @@ a = Analysis(
         "cleanup_backend",
         "cleanup_prompts",
         "mlx_cleanup",
+        # v0.15 supervisor-model pipeline (lazy-imported via _fire_supervisor_batch)
+        "supervisor_queue",
+        "supervisor_candidates",
+        "supervisor_diff",
+        "supervisor_runner",
+        "promoter",
         # MLX dependencies for local cleanup (Apple Silicon). mlx-lm + huggingface_hub
         # are imported inside methods to keep cold-start fast on non-MLX users.
         "mlx",

@@ -116,6 +116,13 @@ class VoxType(rumps.App):
         self._llm_corrector = None  # lazy-init on first use (legacy Phi-3 path)
         self._mlx_cleanup = None    # lazy-init on first use of cleanup_backend="local"
         self._cmd_recording = False # Command Mode recording state (⌥⇧C)
+        # v0.15 supervisor pipeline — see supervisor_runner.py
+        # Last dictation timestamp, used by the idle trigger to decide when
+        # the user has stepped away long enough to fire a supervised batch.
+        self._last_activity_t: float = time.monotonic()
+        self._supervisor_runner = None         # lazy SupervisorRunner instance
+        self._supervisor_running = False       # mutex: never overlap batches
+        self._supervisor_thread = None         # the idle-watch background thread
 
         # Streaming transcription state — set on each _start_recording when
         # streaming_enabled is True. None otherwise.
@@ -140,6 +147,73 @@ class VoxType(rumps.App):
         self._intent_history: list[dict] = []  # recent (text, action) tuples, last 20
 
         self._ensure_spotlight_indexed()
+
+        # Kick off the supervisor idle-watcher if enabled. The watcher is a
+        # daemon thread that wakes once a minute, checks how long the user
+        # has been idle, and fires a SupervisorRunner batch when the gap
+        # exceeds `supervisor_idle_minutes`. See supervisor_runner.py.
+        if self.cfg.get("supervisor_enabled", False):
+            self._supervisor_thread = threading.Thread(
+                target=self._supervisor_idle_loop, daemon=True,
+                name="supervisor-idle-watch",
+            )
+            self._supervisor_thread.start()
+            print("[supervisor] idle watcher started", flush=True)
+
+    def _supervisor_idle_loop(self) -> None:
+        """Background thread: kick off a supervised batch after the user
+        has been idle for `supervisor_idle_minutes`. Reschedules itself
+        after each batch completes.
+
+        Crash-safe: every iteration catches all exceptions so a one-off
+        backend error can't kill the watcher. The catch is logged for
+        debugging via the rolling voicetype.log.
+        """
+        while True:
+            try:
+                time.sleep(60)
+                if not self.cfg.get("supervisor_enabled", False):
+                    # Config got flipped off — exit cleanly so the next
+                    # toggle can spawn a fresh thread.
+                    return
+                if self._supervisor_running:
+                    continue
+                idle_minutes = (time.monotonic() - self._last_activity_t) / 60.0
+                threshold = float(self.cfg.get("supervisor_idle_minutes", 10))
+                if idle_minutes < threshold:
+                    continue
+                self._fire_supervisor_batch()
+            except Exception as e:
+                print(f"[supervisor] idle loop error (continuing): {e}", flush=True)
+
+    def _fire_supervisor_batch(self) -> None:
+        """One-shot supervisor batch. Runs synchronously on the watcher
+        thread (NOT the main rumps event loop) so the dictate hotkey stays
+        responsive throughout."""
+        self._supervisor_running = True
+        try:
+            if self._supervisor_runner is None:
+                import supervisor_runner
+                self._supervisor_runner = supervisor_runner.SupervisorRunner(
+                    backend_name=self.cfg.get("supervisor_backend", "whisperkit"),
+                )
+            result = self._supervisor_runner.run_batch(
+                max_pairs=int(self.cfg.get("supervisor_max_pairs", 30)),
+                time_budget_s=int(self.cfg.get("supervisor_time_budget_s", 180)),
+                retention_days=int(self.cfg.get("supervisor_retention_days", 30)),
+                log=lambda msg: print(msg, flush=True),
+            )
+            print(f"[supervisor] batch result: {result}", flush=True)
+            try:
+                # Refresh the live Whisper prompt so any newly promoted
+                # vocab/corrections start biasing the very next dictation.
+                self._refresh_whisper_vocab(app=self._current_app)
+            except Exception as e:
+                print(f"[supervisor] vocab refresh failed: {e}", flush=True)
+        finally:
+            self._supervisor_running = False
+            # Reset the idle clock so we don't immediately re-fire.
+            self._last_activity_t = time.monotonic()
 
     def _load_embedder(self):
         try:
@@ -431,6 +505,10 @@ class VoxType(rumps.App):
         return self._vad
 
     def _start_recording(self):
+        # Activity bookkeeping for the supervisor idle trigger — bump on every
+        # ⌥C press, even ones that get rejected for "model still loading", so
+        # the supervisor never fires *while* the user is actively dictating.
+        self._last_activity_t = time.monotonic()
         if not self._model_loaded.is_set():
             print("Model still loading, please wait...", flush=True)
             return

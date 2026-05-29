@@ -97,9 +97,15 @@ def list_active() -> list[dict[str, Any]]:
     return rows
 
 
-def add(canonical: str, alias: str | None = None) -> bool:
+def add(canonical: str, alias: str | None = None, source: str = "user") -> bool:
     """Add a new word. Returns False if it already exists (case-insensitive
-    canonical match)."""
+    canonical match).
+
+    `source` records the origin: "user" (explicit add via UI), "quickfix"
+    (Quick Fix correction), "supervisor" (auto-promoted by the v0.15
+    supervisor-model pipeline), or "auto" (other heuristics). Used by the
+    "View recent learnings" panel to filter what to show.
+    """
     canonical = (canonical or "").strip()
     if not canonical:
         return False
@@ -113,6 +119,7 @@ def add(canonical: str, alias: str | None = None) -> bool:
         "usage_count": 0,
         "added_at": int(time.time()),
         "status": "new",
+        "source": source,
     })
     _save(data)
     return True

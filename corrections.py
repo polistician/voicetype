@@ -36,11 +36,55 @@ def _save(corrections: dict):
         json.dump(corrections, f, indent=2)
 
 
-def add_correction(wrong: str, right: str):
-    """Add a correction: wrong → right."""
+def add_correction(wrong: str, right: str, source: str = "user"):
+    """Add a correction: wrong → right.
+
+    `source` is recorded in a sibling `corrections_meta.json` so the
+    learnings panel can show which auto-promotions came from the supervisor
+    vs which came from Quick Fix vs which were seeded by domain defaults.
+    The base `corrections.json` shape stays a flat {wrong: right} dict so
+    the hot path (`apply_corrections`) doesn't have to change.
+    """
     corrections = _load()
     corrections[wrong.lower()] = right
     _save(corrections)
+    _annotate_source(wrong.lower(), right, source)
+
+
+def _annotate_source(wrong: str, right: str, source: str) -> None:
+    """Best-effort write to corrections_meta.json. Never raises."""
+    import json as _json
+    meta_path = os.path.join(os.path.dirname(CORRECTIONS_PATH), "corrections_meta.json")
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = _json.load(f)
+        else:
+            meta = {}
+    except Exception:
+        meta = {}
+    meta[wrong] = {"right": right, "source": source}
+    try:
+        os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+        with open(meta_path, "w") as f:
+            _json.dump(meta, f, indent=2)
+    except Exception:
+        pass
+
+
+def get_source(wrong: str) -> str:
+    """Return the source tag for a correction. 'unknown' if not annotated."""
+    import json as _json
+    meta_path = os.path.join(os.path.dirname(CORRECTIONS_PATH), "corrections_meta.json")
+    if not os.path.exists(meta_path):
+        return "unknown"
+    try:
+        with open(meta_path) as f:
+            meta = _json.load(f)
+    except Exception:
+        return "unknown"
+    entry = meta.get(wrong.lower(), {})
+    return entry.get("source", "unknown") if isinstance(entry, dict) else "unknown"
 
 
 def apply_corrections(text: str) -> str:

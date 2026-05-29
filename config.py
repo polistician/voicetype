@@ -60,6 +60,19 @@ DEFAULT_CONFIG = {
     # Tier-1 voice-edit phrases ("scratch that", "new line", "new paragraph",
     # "undo that") auto-trigger when dictated alone, with no command-mode key.
     "voice_edit_auto_detect_enabled": True,
+    # Supervisor-model pipeline (v0.15+). When enabled, every N minutes of
+    # idle time the background worker re-transcribes the day's dictations
+    # through WhisperKit large-v3 (slower, more accurate), diffs against
+    # the fast model's output, and auto-promotes consistent disagreements
+    # into vocabulary.json + corrections.json. Zero user input required;
+    # learnings are tagged source="supervisor" so the Settings panel can
+    # show what's been promoted.
+    "supervisor_enabled": False,           # hidden flag — flip via Settings in v0.15.1
+    "supervisor_backend": "whisperkit",    # WhisperKit large-v3 local
+    "supervisor_idle_minutes": 10,         # idle gap before a batch fires
+    "supervisor_max_pairs": 30,            # cap per batch — avoids runaway CPU
+    "supervisor_time_budget_s": 180,       # hard ceiling per batch
+    "supervisor_retention_days": 30,       # delete training audio older than this
     # Legacy keys (read for migration, stripped on save by save_config):
     "ai_cleanup_enabled": False,
     "use_llm_correction": False,
