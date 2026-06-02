@@ -131,3 +131,54 @@ def test_german_vocabulary_extracted():
         for c in cands
     )
     assert found
+
+
+# ─── v0.15.0.1 hotfix regressions — stopword poisoning ───────────────────────
+
+
+def test_no_substitution_when_both_spans_are_pure_stopwords():
+    """`the↔a` and `is↔it's` were the root cause of the v0.15.0.1 poisoning.
+    Substitutions where BOTH sides consist entirely of stopwords are dropped
+    at the diff layer. Cases like project↔projects (content words that still
+    oscillate) are caught by the promoter's contradiction detection instead."""
+    for fast, slow in [
+        ("the file is here", "a file is here"),         # the ↔ a
+        ("is the file", "it's the file"),               # is ↔ it's
+        ("yeah it works", "okay it works"),             # yeah ↔ okay
+    ]:
+        cands = sd.diff(fast, slow)
+        subs = [c for c in cands if c["type"] == "substitution"]
+        assert subs == [], f"pure-stopword sub leaked for {fast!r} → {slow!r}: {subs}"
+
+
+def test_substitution_kept_when_one_side_has_real_word():
+    """`by ne → binary` must stay alive — `by` is a stopword but `binary`
+    isn't, so the substitution carries real signal."""
+    cands = sd.diff("the by ne file", "the binary file")
+    subs = [c for c in cands if c["type"] == "substitution"]
+    assert any(s["payload"] == {"from": "by ne", "to": "binary"} for s in subs)
+
+
+def test_short_words_excluded_from_new_vocab():
+    """5-letter and shorter slow-only words must NOT be flagged as new vocab —
+    raised from len<4 to len<6 in the hotfix."""
+    cands = sd.diff(
+        "open the door",
+        "open the door okay sure yeah right",  # all <=5 chars
+    )
+    new_vocabs = [c for c in cands if c["type"] == "new_vocab"]
+    bad_words = {"okay", "sure", "yeah", "right"}
+    assert not any(c["payload"]["word"].lower() in bad_words for c in new_vocabs)
+
+
+def test_long_unique_word_still_promoted():
+    """6+ char domain words still flow through — regression check that the
+    tightened length gate doesn't kill legitimate signal."""
+    cands = sd.diff(
+        "i love the project",
+        "I love the Polistician project",
+    )
+    assert any(
+        c["type"] == "new_vocab" and c["payload"]["word"] == "Polistician"
+        for c in cands
+    )

@@ -40,6 +40,13 @@ THRESHOLD_NEW_VOCAB = 2
 THRESHOLD_SUBSTITUTION = 3
 THRESHOLD_LANGUAGE_SWITCH = 1
 
+# v0.15.0.1: minimum max-confidence to promote a substitution. Below this,
+# the supervisor was probably guessing on a noisy/ambiguous clip; better to
+# let the candidate accumulate more occurrences before committing. New_vocab
+# candidates already use a length+stopword gate upstream so they don't need
+# an extra confidence floor.
+MIN_SUBSTITUTION_CONFIDENCE = 0.85
+
 
 def _ensure_str(payload: dict, *keys: str) -> tuple[str, ...]:
     """Pull string fields from a payload dict, defending against None."""
@@ -150,11 +157,31 @@ def run(*, dry_run: bool = False,
     # ── substitution ──────────────────────────────────────────────────────
     if substitution_rows:
         grouped = _group_substitution(substitution_rows)
+        # v0.15.0.1: contradiction detection. If both `A → B` and `B → A`
+        # would meet threshold, we'd ship two corrections that oscillate
+        # ("the" ↔ "a") and poison every dictation. Drop both sides.
+        keys = set(grouped.keys())
+        contradictions: set[tuple[str, str]] = set()
+        for (frm, to_) in keys:
+            reverse = (to_.lower(), frm)  # same (lowercase, surface) shape
+            if reverse in keys:
+                contradictions.add((frm, to_))
+                contradictions.add(reverse)
+        if contradictions:
+            log_fn(f"[promoter] dropping {len(contradictions)} contradicting substitutions")
+
         promoted_ids: list[int] = []
-        for (frm, to_), (distinct_count, _audios, _conf, ids) in grouped.items():
+        for (frm, to_), (distinct_count, _audios, max_conf, ids) in grouped.items():
+            if (frm, to_) in contradictions:
+                continue
             if distinct_count < THRESHOLD_SUBSTITUTION:
                 continue
-            log_fn(f"[promoter] substitution {frm!r} → {to_!r} from {distinct_count} clips")
+            # v0.15.0.1: confidence floor. The diff emits ≥0.4-conf
+            # substitutions; we only promote ≥0.85 — leave the noisy stuff
+            # in the candidates DB to accumulate more evidence.
+            if max_conf < MIN_SUBSTITUTION_CONFIDENCE:
+                continue
+            log_fn(f"[promoter] substitution {frm!r} → {to_!r} from {distinct_count} clips (conf {max_conf:.2f})")
             if not dry_run:
                 try:
                     import corrections as corr

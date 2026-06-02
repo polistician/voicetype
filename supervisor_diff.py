@@ -37,26 +37,137 @@ from typing import Optional
 
 HALLUCINATION_FLOOR = 0.4
 
-# Words that we never promote as new vocab — they're too generic to bias
-# Whisper usefully on, and including them just dilutes the prompt budget.
-# Tuned for English + a handful of German function words that show up in
-# the user's profile already.
+# Minimum word length to be considered for new-vocab promotion. Below this,
+# we're almost always staring at a stopword the supervisor mis-spelled, OR
+# a domain abbreviation already well-handled by initial_prompt biasing.
+# v0.15.0.1: raised from 4 → 6 after early auto-promotion poisoning showed
+# words like "still", "cheap", "yeah" landing in the user's vocabulary file.
+MIN_VOCAB_WORD_LEN = 6
+
+# Words that we never promote as new vocab AND never emit as a
+# substitution side (because "the" ↔ "a" oscillation poisons every
+# dictation). v0.15.0.1: expanded from ~80 to ~700 entries covering the
+# top-500 English words + top-200 German words plus contractions and the
+# common Whisper-misrecognition synonyms ("yeah", "okay", etc.).
 _STOPWORDS: set[str] = {
-    # English
-    "the", "a", "an", "and", "or", "but", "if", "of", "to", "in", "on", "at",
-    "for", "with", "by", "from", "is", "are", "was", "were", "be", "been",
-    "being", "have", "has", "had", "do", "does", "did", "i", "you", "he",
-    "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your",
-    "his", "its", "our", "their", "this", "that", "these", "those", "so",
-    "not", "no", "yes", "as", "than", "then", "there", "here", "when",
-    "where", "who", "what", "how", "why", "which", "all", "any", "some",
-    "one", "two", "three", "very", "just", "also", "only", "also",
-    # German function words common in the user's data
-    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem",
-    "ich", "du", "er", "sie", "es", "wir", "ihr", "und", "oder", "aber",
-    "ist", "war", "sind", "habe", "hat", "haben", "wie", "was", "wer", "wo",
-    "warum", "auch", "nicht", "nur", "noch", "schon", "sehr", "hier", "dort",
+    # English — top-500 most-frequent. Sourced from the OEC + COCA top lists,
+    # deduped and lowercased. Includes all the function words AND the most
+    # common content words that show up in EVERY dictation regardless of
+    # topic — those are the ones that poison the substitution layer because
+    # the fast vs slow models routinely disagree on tense/article/casing.
+    "a", "able", "about", "above", "across", "act", "actually", "add", "after",
+    "again", "against", "ago", "all", "almost", "alone", "along", "already",
+    "also", "although", "always", "am", "among", "an", "and", "another",
+    "answer", "any", "anyone", "anything", "anyway", "appear", "are", "area",
+    "around", "as", "ask", "at", "available", "away", "back", "bad", "be",
+    "became", "because", "become", "becomes", "been", "before", "began",
+    "begin", "behind", "being", "believe", "below", "best", "better",
+    "between", "big", "both", "bring", "but", "by", "call", "called", "came",
+    "can", "cannot", "care", "case", "cause", "certain", "change", "check",
+    "child", "children", "close", "come", "comes", "coming", "common",
+    "company", "consider", "continue", "could", "couldn't", "course", "day",
+    "days", "deal", "decide", "decision", "did", "didn't", "die", "different",
+    "do", "does", "doesn't", "doing", "don't", "done", "down", "during",
+    "each", "early", "easy", "either", "else", "end", "enough", "even",
+    "ever", "every", "everyone", "everything", "exact", "exactly", "example",
+    "except", "fact", "far", "feel", "few", "find", "finds", "fine", "first",
+    "five", "follow", "for", "form", "found", "four", "from", "full", "gave",
+    "general", "get", "gets", "getting", "give", "given", "gives", "go",
+    "goes", "going", "gone", "good", "got", "great", "group", "had", "hadn't",
+    "happen", "happened", "happens", "happy", "has", "hasn't", "have",
+    "haven't", "having", "he", "he'd", "he'll", "he's", "head", "hear",
+    "heard", "held", "help", "her", "here", "here's", "hers", "herself",
+    "high", "him", "himself", "his", "hold", "home", "hour", "hours",
+    "house", "how", "however", "human", "i", "i'd", "i'll", "i'm", "i've",
+    "idea", "if", "important", "in", "indeed", "instead", "interest", "into",
+    "is", "isn't", "it", "it's", "its", "itself", "just", "keep", "keeps",
+    "kept", "kind", "knew", "know", "known", "knows", "large", "last",
+    "later", "lay", "lead", "least", "leave", "left", "less", "let", "let's",
+    "level", "lie", "life", "like", "liked", "likes", "list", "little",
+    "live", "lived", "lives", "long", "look", "looked", "looking", "looks",
+    "lot", "lots", "made", "main", "make", "makes", "making", "man", "many",
+    "matter", "may", "maybe", "me", "mean", "means", "meant", "might",
+    "mind", "minute", "miss", "money", "month", "more", "most", "move",
+    "much", "must", "my", "myself", "name", "near", "need", "needs", "never",
+    "new", "next", "no", "none", "nor", "not", "nothing", "now", "of", "off",
+    "often", "oh", "okay", "old", "on", "once", "one", "ones", "only",
+    "open", "opens", "or", "other", "others", "our", "ours", "out", "over",
+    "own", "part", "past", "people", "perhaps", "person", "place", "plan",
+    "play", "please", "point", "possible", "power", "pretty", "probably",
+    "problem", "program", "put", "puts", "question", "quick", "quite",
+    "rather", "reach", "read", "real", "really", "result", "right", "room",
+    "round", "run", "said", "same", "saw", "say", "says", "school", "second",
+    "see", "seem", "seems", "seen", "self", "send", "sent", "set", "she",
+    "she'd", "she'll", "she's", "should", "shouldn't", "show", "shown",
+    "side", "since", "small", "so", "some", "someone", "something",
+    "sometime", "sometimes", "soon", "sort", "speak", "specific", "start",
+    "state", "stay", "still", "stop", "study", "such", "sure", "system",
+    "take", "takes", "taking", "talk", "talking", "tell", "tells", "ten",
+    "than", "thank", "that", "that's", "the", "their", "theirs", "them",
+    "themselves", "then", "there", "there's", "therefore", "these", "they",
+    "they'd", "they'll", "they're", "they've", "thing", "things", "think",
+    "thinking", "thinks", "third", "this", "those", "though", "thought",
+    "three", "through", "thus", "till", "time", "times", "to", "today",
+    "together", "told", "too", "took", "top", "toward", "town", "true",
+    "try", "trying", "turn", "two", "under", "until", "up", "upon", "us",
+    "use", "used", "useful", "uses", "using", "usually", "very", "via",
+    "view", "wait", "want", "wants", "was", "wasn't", "way", "ways", "we",
+    "we'd", "we'll", "we're", "we've", "week", "well", "went", "were",
+    "weren't", "what", "what's", "whatever", "when", "where", "whether",
+    "which", "while", "white", "who", "who's", "whom", "whose", "why",
+    "will", "with", "within", "without", "won't", "word", "words", "work",
+    "works", "world", "would", "wouldn't", "write", "year", "years", "yeah",
+    "yes", "yet", "you", "you'd", "you'll", "you're", "you've", "young",
+    "your", "yours", "yourself",
+    # German — top-200 function + frequent content words.
+    "aber", "alle", "allen", "aller", "alles", "allgemein", "als", "also",
+    "am", "an", "andere", "anderen", "anderes", "auch", "auf", "aus", "bei",
+    "beide", "beim", "bekommen", "besonders", "besser", "beste", "bin",
+    "bis", "bisher", "bitte", "brauchen", "bringen", "ча", "da", "dabei",
+    "dafür", "dagegen", "daher", "damit", "danach", "dank", "danke", "dann",
+    "daran", "darauf", "daraus", "darin", "darum", "das", "dass", "davon",
+    "davor", "dazu", "dein", "deine", "dem", "den", "denen", "denken",
+    "denn", "der", "deren", "des", "dessen", "dich", "die", "diese",
+    "dieselbe", "diesem", "diesen", "dieser", "dieses", "dir", "doch",
+    "dort", "drei", "du", "durch", "ein", "eine", "einem", "einen", "einer",
+    "eines", "einige", "einmal", "elf", "er", "es", "etwa", "etwas", "euch",
+    "euer", "eure", "fast", "ferner", "folgende", "für", "ganz", "gar",
+    "geht", "geben", "gegen", "gehen", "geht", "gemacht", "genug", "gerade",
+    "gewesen", "gewollt", "gewusst", "gibt", "gleich", "gut", "haben",
+    "habe", "habt", "hast", "hat", "hatte", "hatten", "her", "heute", "hier",
+    "hin", "hinter", "ich", "ihm", "ihn", "ihnen", "ihr", "ihre", "ihrem",
+    "ihren", "ihrer", "ihres", "im", "immer", "in", "indem", "ins",
+    "irgend", "ist", "ja", "je", "jede", "jedem", "jeden", "jeder", "jedes",
+    "jedoch", "jene", "jenem", "jenen", "jener", "jenes", "jetzt", "kann",
+    "kannst", "kaum", "kein", "keine", "keinem", "keinen", "keiner",
+    "keines", "können", "könnte", "könnten", "machen", "macht", "mal", "man",
+    "manche", "manchen", "mancher", "manches", "mehr", "mein", "meine",
+    "meinem", "meinen", "meiner", "meines", "mich", "mir", "mit", "müssen",
+    "muss", "musste", "musst", "nach", "nachdem", "nein", "neue", "neuen",
+    "nicht", "nichts", "noch", "nun", "nur", "ob", "obwohl", "oder",
+    "ohne", "schon", "sehr", "sei", "sein", "seine", "seinem", "seinen",
+    "seiner", "seines", "seit", "sich", "sie", "sind", "so", "solche",
+    "solchem", "solchen", "solcher", "solches", "sollte", "sondern", "und",
+    "uns", "unser", "unsere", "unter", "viel", "viele", "vom", "von", "vor",
+    "wann", "warum", "was", "weiter", "welche", "welchem", "welchen",
+    "welcher", "welches", "wenn", "wer", "werde", "werden", "wie", "wieder",
+    "will", "wir", "wird", "wirst", "wo", "wollen", "wollte", "während",
+    "würde", "würden", "zu", "zum", "zur", "zwar", "zwischen", "über",
 }
+
+
+def _looks_like_stopword(tok: str) -> bool:
+    """True if a token shouldn't appear on either side of a substitution
+    candidate. Combines the explicit stopword set with a length gate:
+    1-3 character "words" are basically always articles, prepositions,
+    contractions, or noise. Includes the contraction-split case ("don't"
+    tokenises to one entry; "it's" → also one)."""
+    norm = _normalize(tok)
+    if not norm:
+        return True
+    if len(norm) <= 3:
+        return True
+    return norm in _STOPWORDS
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -168,9 +279,9 @@ def diff(fast_text: str, slow_text: str) -> list[dict]:
 
         if tag == "insert":
             # Words the supervisor added → new vocab if they're long enough
-            # and not stopwords.
+            # and not stopwords. v0.15.0.1: tightened length gate to 6.
             for w in slow_span:
-                if _is_stopword(w) or len(w) < 4:
+                if _looks_like_stopword(w) or len(w) < MIN_VOCAB_WORD_LEN:
                     continue
                 out.append({
                     "type": "new_vocab",
@@ -195,6 +306,18 @@ def diff(fast_text: str, slow_text: str) -> list[dict]:
                 continue
             if len(fast_span) == 0 or len(slow_span) == 0:
                 continue
+            # v0.15.0.1: drop substitutions where BOTH spans are entirely
+            # stopwords. That catches the↔a, is↔it's, were↔was —
+            # oscillating function-word disagreements that poison every
+            # dictation. But it leaves useful substitutions like
+            # "by ne" → "binary" alone, where one side is short noise
+            # (`by`, `ne`) but the target ("binary") is real signal.
+            # Contradiction detection in the promoter handles the cases
+            # where one side has a useful word but the pair still oscillates
+            # (e.g. project ↔ projects).
+            if (all(_looks_like_stopword(t) for t in fast_span)
+                    and all(_looks_like_stopword(t) for t in slow_span)):
+                continue
             from_phrase = " ".join(fast_span).strip()
             to_phrase = _surface_phrase(slow_toks, slow_norm, slow_span)
             if not from_phrase or not to_phrase:
@@ -211,7 +334,9 @@ def diff(fast_text: str, slow_text: str) -> list[dict]:
             # If the substitution introduces a long word not in the fast
             # side, also surface it as a vocab candidate (belt + braces).
             for w in slow_span:
-                if not _is_stopword(w) and len(w) >= 4 and w not in fast_span:
+                if (not _looks_like_stopword(w)
+                        and len(w) >= MIN_VOCAB_WORD_LEN
+                        and w not in fast_span):
                     out.append({
                         "type": "new_vocab",
                         "payload": {"word": _surface_word(slow_toks, slow_norm, w)},

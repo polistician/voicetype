@@ -124,6 +124,48 @@ def test_dry_run_does_not_write_or_stamp():
 # ── language_switch ─────────────────────────────────────────────────────────
 
 
+# ── v0.15.0.1 hotfix — contradictions + confidence floor ─────────────────────
+
+
+def test_contradicting_substitutions_both_dropped():
+    """A→B and B→A appearing as candidates is the v0.15.0.1 root cause.
+    Both directions must be dropped so they can't oscillate."""
+    with tempfile.TemporaryDirectory() as tmp, _patch_db(tmp):
+        # Seed three audio paths for each direction so they both meet threshold.
+        for audio in ("a.npy", "b.npy", "c.npy"):
+            _seed(audio, "substitution", {"from": "the", "to": "a"}, conf=0.95)
+            _seed(audio, "substitution", {"from": "a", "to": "the"}, conf=0.95)
+        with mock.patch("corrections.add_correction") as cmock:
+            summary = p.run(dry_run=False)
+        assert cmock.call_count == 0
+        assert summary["substitutions_promoted"] == 0
+
+
+def test_low_confidence_substitution_not_promoted():
+    """Below the 0.85 floor, even threshold-meeting substitutions stay
+    in the candidates DB to keep accumulating evidence."""
+    with tempfile.TemporaryDirectory() as tmp, _patch_db(tmp):
+        for audio in ("a.npy", "b.npy", "c.npy"):
+            _seed(audio, "substitution",
+                  {"from": "build", "to": "built"}, conf=0.6)
+        with mock.patch("corrections.add_correction") as cmock:
+            summary = p.run(dry_run=False)
+        assert cmock.call_count == 0
+        assert summary["substitutions_promoted"] == 0
+
+
+def test_high_confidence_threshold_substitution_promoted():
+    """Above the floor + at threshold → promoted normally."""
+    with tempfile.TemporaryDirectory() as tmp, _patch_db(tmp):
+        for audio in ("a.npy", "b.npy", "c.npy"):
+            _seed(audio, "substitution",
+                  {"from": "data based", "to": "database"}, conf=0.9)
+        with mock.patch("corrections.add_correction") as cmock:
+            summary = p.run(dry_run=False)
+        assert cmock.call_count == 1
+        assert summary["substitutions_promoted"] == 1
+
+
 def test_language_switch_relaxes_pinned_input_language(tmp_path, monkeypatch):
     """If config.json pins input_language to a non-auto value and the
     supervisor saw a language switch, we should relax to 'auto'."""
