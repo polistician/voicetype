@@ -150,7 +150,7 @@ _JUNK = {
 }
 
 
-def _dedupe_phrase_repeats(text: str, max_phrase: int = 8) -> str:
+def _dedupe_phrase_repeats(text: str, max_phrase: int = 20) -> str:
     """Catch and remove immediately-repeated multi-word phrases.
 
     Whisper sometimes emits ". This is a longer-term care system. This is a
@@ -160,6 +160,11 @@ def _dedupe_phrase_repeats(text: str, max_phrase: int = 8) -> str:
     Scans for runs of length 2..max_phrase words that repeat back-to-back
     (allowing one word of punctuation drift). Removes only adjacent
     duplicates; legitimate repetition with intervening words is preserved.
+
+    max_phrase was raised from 8 → 20 in v0.15.2 after a real failure mode
+    where Whisper's decoder collapsed and emitted a 9-word phrase
+    ("have live typing so talk in the text it's") 22 times in a row. The
+    previous 8-word cap silently missed it.
     """
     if not text:
         return text
@@ -171,7 +176,9 @@ def _dedupe_phrase_repeats(text: str, max_phrase: int = 8) -> str:
         return w.strip(".,!?;:'\"()[]{}").lower()
 
     norm_words = [norm(w) for w in words]
-    out: list[int] = list(range(len(words)))  # indices to keep
+    # NOTE: pre-v0.15.2 had an `out` indices list here that wasn't used in
+    # the return but threw IndexError on long inputs (22x repeat case).
+    # Removed — `words` itself is the only source of truth.
     i = 0
     while i < len(words):
         removed = False
@@ -180,9 +187,9 @@ def _dedupe_phrase_repeats(text: str, max_phrase: int = 8) -> str:
             if i + 2 * k > len(words):
                 continue
             if norm_words[i : i + k] == norm_words[i + k : i + 2 * k]:
-                # Drop the second occurrence
-                out = out[: out.index(i + k)] + out[out.index(i + 2 * k) :] if (i + 2 * k) in out else out
-                # Rebuild norm_words/words view by skipping
+                # Drop the second occurrence in-place; the next loop
+                # iteration re-checks at the same i so chains of N repeats
+                # collapse iteratively to a single copy.
                 del words[i + k : i + 2 * k]
                 del norm_words[i + k : i + 2 * k]
                 removed = True

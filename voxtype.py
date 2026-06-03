@@ -865,6 +865,24 @@ class VoxType(rumps.App):
 
         if text:
             raw_whisper_text = text
+            # 0. Defense-in-depth: kill Whisper repetition-collapse runs
+            # (e.g. "have live typing so talk in the text it's" emitted 22
+            # times by a decoder that got stuck). The streaming transcriber
+            # already runs this on chunk merges with a 20-word phrase cap,
+            # but non-streaming paths or chunk-merge survivors might still
+            # leak repeats through. Idempotent and cheap when no repeats
+            # exist, so applying it twice is fine.
+            try:
+                from streaming_transcriber import _dedupe_phrase_repeats
+                deduped = _dedupe_phrase_repeats(text)
+                if deduped != text:
+                    print(f"  [dedupe] dropped phrase repeats: "
+                          f"{len(text.split())} → {len(deduped.split())} words", flush=True)
+                    text = deduped
+                    vox_stats.increment("phrase_repeats_dropped")
+            except Exception as e:
+                print(f"  [dedupe] failed (non-fatal): {e}", flush=True)
+
             # 1. Apply known corrections (fox→vox, etc.)
             corrected = apply_corrections(text)
             if corrected != text:
