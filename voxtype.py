@@ -71,8 +71,14 @@ class VoxType(rumps.App):
         self._stats_item = rumps.MenuItem("Stats…", callback=self._on_stats_click)
         self._integrator_item = rumps.MenuItem("Connect Integrator…", callback=self._on_integrator_click)
         self._refresh_integrator_label()
+        # v0.15.3: surface live health + a manual restart escape hatch so the
+        # user never has to drop to the terminal to recover from a stuck
+        # helper. The health item updates from _watchdog_loop below.
+        self._health_item = rumps.MenuItem("Health: starting…")
+        self._restart_item = rumps.MenuItem("Restart VoiceType", callback=self._on_restart_click)
         self.menu = [
             self._status_item, None,
+            self._health_item, None,
             self._input_lang_menu, self._lang_menu, None,
             f"Model: {self.cfg['model']}", None,
             self._update_item,
@@ -80,6 +86,7 @@ class VoxType(rumps.App):
             self._vocab_item,
             self._integrator_item,
             self._help_item, self._stats_item,
+            self._restart_item,
         ]
 
         self.recorder = Recorder(sample_rate=self.cfg["sample_rate"])
@@ -159,6 +166,110 @@ class VoxType(rumps.App):
             )
             self._supervisor_thread.start()
             print("[supervisor] idle watcher started", flush=True)
+
+        # v0.15.3: health watchdog. Checks every 5s whether the helper
+        # subprocesses (hotkey_helper especially) are still alive. Surfaces
+        # the result in the Health menu item so the user knows when
+        # "VoiceType stopped working" is really "hotkey_helper segfaulted".
+        # Logs every anomaly to ~/.voicetype/health_log.jsonl for forensics.
+        self._health_thread = threading.Thread(
+            target=self._watchdog_loop, daemon=True, name="health-watchdog",
+        )
+        self._health_thread.start()
+        self._helper_death_count = 0    # cumulative across the session
+
+    HEALTH_LOG_PATH = os.path.expanduser("~/.voicetype/health_log.jsonl")
+    WATCHDOG_INTERVAL_S = 5
+
+    def _watchdog_loop(self) -> None:
+        """Poll subprocess health, surface state in the Health menu item.
+
+        Failure modes we actually catch with poll():
+          - hotkey_helper crashed (most common cause of "hotkey stopped working")
+          - snippet_overlay crashed (snippets won't render)
+          - settings_window crashed (less critical; opens on demand)
+
+        We do NOT auto-respawn yet — surfacing the death + offering a
+        one-click Restart is the v0.15.3 scope. Auto-respawn is risky
+        (some crashes are crash-loops; restarting fast can mask real bugs)
+        so we defer that to v0.15.4 if the data shows it's needed.
+        """
+        import json as _json
+        while True:
+            try:
+                time.sleep(self.WATCHDOG_INTERVAL_S)
+                problems = self._check_helper_health()
+                if problems:
+                    label = problems[0]
+                    self._health_item.title = f"Health: {label} — click Restart"
+                    # Log once per state-change (don't spam if helper stays dead)
+                    if self._helper_death_count == 0:
+                        self._helper_death_count += 1
+                        self._append_health_event({
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                            "kind": "helper_died",
+                            "details": problems,
+                        })
+                        print(f"[watchdog] {label}", flush=True)
+                else:
+                    if self._helper_death_count > 0:
+                        # Recovery — user must have manually restarted helpers
+                        self._helper_death_count = 0
+                        self._append_health_event({
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                            "kind": "recovered",
+                        })
+                    self._health_item.title = "Health: ✓ all helpers alive"
+            except Exception as e:  # pragma: no cover — last-resort
+                print(f"[watchdog] loop error (continuing): {e}", flush=True)
+
+    def _check_helper_health(self) -> list[str]:
+        """Return a list of failure descriptions; empty list means healthy."""
+        problems: list[str] = []
+        helper = getattr(self.hotkey, "_proc", None)
+        if helper is not None and helper.poll() is not None:
+            problems.append(f"hotkey_helper died (exit {helper.returncode})")
+        overlay = getattr(self.overlay, "_proc", None)
+        if overlay is not None and overlay.poll() is not None:
+            problems.append(f"snippet_overlay died (exit {overlay.returncode})")
+        return problems
+
+    def _append_health_event(self, payload: dict) -> None:
+        """Best-effort write to the health log. Never raises."""
+        import json as _json
+        try:
+            os.makedirs(os.path.dirname(self.HEALTH_LOG_PATH), exist_ok=True)
+            with open(self.HEALTH_LOG_PATH, "a") as f:
+                f.write(_json.dumps(payload) + "\n")
+        except Exception:
+            pass
+
+    def _on_restart_click(self, _sender) -> None:
+        """Manual restart. Spawns a detached helper that re-opens us 2s
+        after we exit, then quits cleanly. The 2s buffer is enough for
+        macOS to release the bundle's Carbon hotkey registration so the
+        new instance can re-grab it on first launch."""
+        try:
+            self._append_health_event({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "kind": "manual_restart",
+            })
+        except Exception:
+            pass
+        try:
+            subprocess.Popen(
+                ["/bin/bash", "-c",
+                 "sleep 2 && open /Applications/VoiceType.app"],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            print(f"[restart] spawn helper failed: {e}", flush=True)
+            return
+        print("[restart] re-opener spawned; quitting in 0.5s", flush=True)
+        time.sleep(0.5)
+        rumps.quit_application()
 
     def _supervisor_idle_loop(self) -> None:
         """Background thread: kick off a supervised batch after the user
