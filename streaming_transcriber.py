@@ -153,22 +153,38 @@ _JUNK = {
 def _dedupe_prefix_loops(text: str, prefix_words: int = 5,
                          min_occurrences: int = 3,
                          keep: int = 1) -> str:
-    """Catch Whisper "stuck-prefix" decoder loops.
+    """Catch Whisper "stuck-prefix" decoder loops + trailing-silence hallucinations.
 
     Distinct from `_dedupe_phrase_repeats`, which only catches **verbatim**
-    adjacent repeats. This catches the case where Whisper keeps emitting the
+    adjacent repeats. This catches the cases where Whisper keeps emitting the
     same opener but varies the completion — produces N similar but not
-    identical sentences in a row. Real user failure (v0.15.4):
+    identical sentences in a row.
 
+    Two real failure modes from the same user:
+
+    v0.15.4 — "real-then-repeat": user said something once, model looped:
         Ich habe ja auch gemacht, dass wir die Website verbinden und dann …
         Ich habe ja auch gemacht, dass wir die Website verbinden sind.
         Ich habe ja auch gemacht, dass wir das nicht mehr als auf …
         Ich habe ja auch gemacht, dass wir die Website verbinden sind.
+        → keep the first one.
 
-    Algorithm: split into sentence-like spans on punctuation. Compute the
-    `prefix_words`-word prefix of each. If any prefix appears ≥ `min_occurrences`
-    times, keep only the first `keep` occurrences of each looping prefix and
-    drop the rest. Non-looping prefixes pass through untouched.
+    v0.15.5 — "pure trailing hallucination": user STOPPED speaking, model
+        filled trailing silence with 4 invented sentences. The user never
+        said any of them. → drop ALL of them.
+
+    Distinguishing: if the looping prefix appears ONLY as the last N
+    contiguous sentences (no non-looping content after the loop starts),
+    it's trailing hallucination → drop all. If the loop is mixed with
+    other non-looping content, keep the first as in v0.15.4.
+
+    Algorithm:
+      1. Split into sentence-like spans on punctuation.
+      2. Compute the `prefix_words`-word prefix of each.
+      3. If any prefix appears ≥ `min_occurrences` times, decide per-prefix:
+         a. If ALL occurrences form a contiguous tail of the text (the loop
+            starts somewhere and nothing non-looping follows), drop all.
+         b. Otherwise, keep only the first `keep` occurrences.
     """
     if not text:
         return text
@@ -185,19 +201,36 @@ def _dedupe_prefix_loops(text: str, prefix_words: int = 5,
         return " ".join(words[:prefix_words])
 
     from collections import Counter
-    counts = Counter(_prefix_key(p) for p in parts if p.strip())
+    keys = [_prefix_key(p) for p in parts]
+    counts = Counter(k for k in keys if k)
     loop_prefixes = {p for p, c in counts.items()
                      if c >= min_occurrences and p}
     if not loop_prefixes:
         return text
 
+    # For each looping prefix, decide whether to drop all (trailing-only)
+    # or keep first (interleaved with other content).
+    # A prefix is "trailing-only" if: from its first occurrence onward,
+    # every non-empty sentence's prefix matches one of the loop_prefixes.
+    drop_entirely: set[str] = set()
+    for lp in loop_prefixes:
+        first_idx = next((i for i, k in enumerate(keys) if k == lp), None)
+        if first_idx is None:
+            continue
+        tail_keys = [k for k in keys[first_idx:] if k]
+        # All tail sentences are themselves looping (could be this prefix
+        # or any of the others detected as loops) → trailing hallucination.
+        if all(k in loop_prefixes for k in tail_keys):
+            drop_entirely.add(lp)
+
     seen: dict[str, int] = {p: 0 for p in loop_prefixes}
     kept: list[str] = []
-    for span in parts:
+    for span, key in zip(parts, keys):
         if not span.strip():
             continue
-        key = _prefix_key(span)
         if key in loop_prefixes:
+            if key in drop_entirely:
+                continue  # pure trailing hallucination → drop entirely
             seen[key] += 1
             if seen[key] > keep:
                 continue

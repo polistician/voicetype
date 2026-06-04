@@ -129,3 +129,52 @@ def test_combined_dedupe_idempotent():
     once = _dedupe_prefix_loops(_dedupe_phrase_repeats(text))
     twice = _dedupe_prefix_loops(_dedupe_phrase_repeats(once))
     assert once == twice
+
+
+# ── v0.15.5 — trailing-silence hallucination ────────────────────────────────
+
+
+def test_trailing_only_loop_dropped_entirely():
+    """v0.15.5: when the loop is the entire trailing tail (no non-looping
+    content after), drop ALL occurrences — pure trailing hallucination.
+
+    Real user message — the 4 'Ich habe ja auch gemacht' sentences were
+    NEVER spoken; the model hallucinated them after the user fell silent."""
+    real = (
+        "Ich sehe zwei Sachen. "
+        "Erstens, ich würde lieber die Domain nutzen. "
+        "Und als zweites, wir haben Integrator und könnten den verbinden, "
+        "oder nicht?"
+    )
+    hallucinated = (
+        " Ich habe ja auch gemacht, dass wir die Website verbinden und dann "
+        "auch nicht verbunden sind. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind. "
+        "Ich habe ja auch gemacht, dass wir das nicht mehr als auf dem Weg "
+        "gehen. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind."
+    )
+    text = real + hallucinated
+    out = _dedupe_prefix_loops(text)
+    # The legitimate content survives, the hallucination is gone entirely
+    assert "Ich sehe zwei Sachen" in out
+    assert "Integrator" in out
+    assert "Ich habe ja auch gemacht" not in out, f"hallucination leaked: {out!r}"
+
+
+def test_interleaved_loop_keeps_first_occurrence():
+    """When the looping prefix is mixed with non-looping content (so the
+    user genuinely said it once), preserve v0.15.4 behavior: keep first."""
+    text = (
+        "I think we should ship. "
+        "Now the thing is broken again. "
+        "Now the thing is broken again. "
+        "Now the thing is broken again. "
+        "But anyway, let's move on."
+    )
+    out = _dedupe_prefix_loops(text)
+    # First occurrence of the loop survives because there's non-looping
+    # content (last sentence) after it.
+    assert out.lower().count("now the thing") == 1
+    assert "I think we should ship" in out
+    assert "But anyway" in out
