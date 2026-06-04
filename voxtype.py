@@ -976,20 +976,32 @@ class VoxType(rumps.App):
 
         if text:
             raw_whisper_text = text
-            # 0. Defense-in-depth: kill Whisper repetition-collapse runs
-            # (e.g. "have live typing so talk in the text it's" emitted 22
-            # times by a decoder that got stuck). The streaming transcriber
-            # already runs this on chunk merges with a 20-word phrase cap,
-            # but non-streaming paths or chunk-merge survivors might still
-            # leak repeats through. Idempotent and cheap when no repeats
-            # exist, so applying it twice is fine.
+            # 0. Defense-in-depth against two Whisper failure modes.
+            #
+            # a) Verbatim phrase repeat — v0.15.2 fix:
+            #    "have live typing so talk in the text it's" × 22.
+            #    _dedupe_phrase_repeats handles this.
+            #
+            # b) Stuck-prefix loop — v0.15.4 fix:
+            #    "Ich habe ja auch gemacht, dass wir die Website verbinden …"
+            #    repeated 4× with varying suffixes. _dedupe_prefix_loops
+            #    handles this. Distinct because (a) requires exact adjacency,
+            #    (b) does not.
+            #
+            # Both passes are idempotent; running them twice (when the
+            # streaming transcriber already applied one of them on chunk
+            # merge) is a cheap no-op.
             try:
-                from streaming_transcriber import _dedupe_phrase_repeats
-                deduped = _dedupe_phrase_repeats(text)
-                if deduped != text:
-                    print(f"  [dedupe] dropped phrase repeats: "
-                          f"{len(text.split())} → {len(deduped.split())} words", flush=True)
-                    text = deduped
+                from streaming_transcriber import (
+                    _dedupe_phrase_repeats, _dedupe_prefix_loops,
+                )
+                pre_dedupe = text
+                text = _dedupe_phrase_repeats(text)
+                text = _dedupe_prefix_loops(text)
+                if text != pre_dedupe:
+                    print(f"  [dedupe] dropped repeats/loops: "
+                          f"{len(pre_dedupe.split())} → {len(text.split())} words",
+                          flush=True)
                     vox_stats.increment("phrase_repeats_dropped")
             except Exception as e:
                 print(f"  [dedupe] failed (non-fatal): {e}", flush=True)

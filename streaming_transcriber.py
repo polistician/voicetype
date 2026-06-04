@@ -150,6 +150,61 @@ _JUNK = {
 }
 
 
+def _dedupe_prefix_loops(text: str, prefix_words: int = 5,
+                         min_occurrences: int = 3,
+                         keep: int = 1) -> str:
+    """Catch Whisper "stuck-prefix" decoder loops.
+
+    Distinct from `_dedupe_phrase_repeats`, which only catches **verbatim**
+    adjacent repeats. This catches the case where Whisper keeps emitting the
+    same opener but varies the completion — produces N similar but not
+    identical sentences in a row. Real user failure (v0.15.4):
+
+        Ich habe ja auch gemacht, dass wir die Website verbinden und dann …
+        Ich habe ja auch gemacht, dass wir die Website verbinden sind.
+        Ich habe ja auch gemacht, dass wir das nicht mehr als auf …
+        Ich habe ja auch gemacht, dass wir die Website verbinden sind.
+
+    Algorithm: split into sentence-like spans on punctuation. Compute the
+    `prefix_words`-word prefix of each. If any prefix appears ≥ `min_occurrences`
+    times, keep only the first `keep` occurrences of each looping prefix and
+    drop the rest. Non-looping prefixes pass through untouched.
+    """
+    if not text:
+        return text
+    # Split into sentence-like spans on `.`, `?`, `!`. Re-attach the
+    # delimiter so the output reads naturally.
+    import re as _re
+    parts = _re.split(r"(?<=[.!?])\s+", text.strip())
+    if len(parts) < min_occurrences:
+        return text
+
+    def _prefix_key(span: str) -> str:
+        words = [w.strip(".,!?;:'\"()[]{}").lower() for w in span.split()]
+        words = [w for w in words if w]
+        return " ".join(words[:prefix_words])
+
+    from collections import Counter
+    counts = Counter(_prefix_key(p) for p in parts if p.strip())
+    loop_prefixes = {p for p, c in counts.items()
+                     if c >= min_occurrences and p}
+    if not loop_prefixes:
+        return text
+
+    seen: dict[str, int] = {p: 0 for p in loop_prefixes}
+    kept: list[str] = []
+    for span in parts:
+        if not span.strip():
+            continue
+        key = _prefix_key(span)
+        if key in loop_prefixes:
+            seen[key] += 1
+            if seen[key] > keep:
+                continue
+        kept.append(span)
+    return " ".join(kept).strip()
+
+
 def _dedupe_phrase_repeats(text: str, max_phrase: int = 20) -> str:
     """Catch and remove immediately-repeated multi-word phrases.
 

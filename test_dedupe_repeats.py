@@ -64,3 +64,68 @@ def test_punctuation_drift_tolerated():
     text = "this works. this works"
     out = _dedupe_phrase_repeats(text)
     assert out.lower().count("works") == 1, f"got: {out!r}"
+
+
+# ── v0.15.4 — stuck-prefix loops ────────────────────────────────────────────
+
+
+from streaming_transcriber import _dedupe_prefix_loops
+
+
+def test_prefix_loop_german_user_failure():
+    """Exact German output the user reported in v0.15.4.
+    4 sentences share a 7-word prefix but vary at the end. Must collapse
+    to at most 1 occurrence of the looping prefix."""
+    text = (
+        "Ich habe ja auch gemacht, dass wir die Website verbinden und dann "
+        "auch nicht verbunden sind. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind. "
+        "Ich habe ja auch gemacht, dass wir das nicht mehr als auf dem Weg "
+        "gehen. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind."
+    )
+    out = _dedupe_prefix_loops(text)
+    # The 7-word prefix should appear at most once
+    occurrences = out.lower().count("ich habe ja auch gemacht")
+    assert occurrences <= 1, f"prefix appeared {occurrences}× in: {out!r}"
+
+
+def test_prefix_loop_short_text_no_op():
+    """Below min_occurrences (3), the function must not alter content."""
+    text = "I went to the store. I went to the bank."
+    out = _dedupe_prefix_loops(text)
+    assert out == text
+
+
+def test_prefix_loop_preserves_non_looping_content():
+    """Looping prefix collapses; surrounding sentences with different
+    prefixes survive."""
+    text = (
+        "I want to tell you something. "
+        "Now the thing is broken again. "
+        "Now the thing is broken again. "
+        "Now the thing is broken again. "
+        "But anyway, let's move on."
+    )
+    out = _dedupe_prefix_loops(text)
+    assert "I want to tell you something" in out
+    assert "But anyway" in out
+    # Looping "Now the thing" should appear at most once
+    assert out.lower().count("now the thing") <= 1
+
+
+def test_prefix_loop_empty_input():
+    assert _dedupe_prefix_loops("") == ""
+    assert _dedupe_prefix_loops("just one sentence here.") == "just one sentence here."
+
+
+def test_combined_dedupe_idempotent():
+    """Running both passes twice in a row produces the same result as once."""
+    text = (
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind. "
+        "Ich habe ja auch gemacht, dass wir die Website verbinden sind."
+    )
+    once = _dedupe_prefix_loops(_dedupe_phrase_repeats(text))
+    twice = _dedupe_prefix_loops(_dedupe_phrase_repeats(once))
+    assert once == twice
